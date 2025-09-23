@@ -283,7 +283,7 @@ cat('Stage 5 \n', 'Features:', lenght(names(m3_1$model)), 'GINI:', gini(dt_woe_l
     gini(dt_woe_list$test[[target]],predict(m3_1, dt_woe_list$test)), '\n')
 
 
-cat('Initial GINI:', initial_gini,' - vs -','Final Model GINI:',gini(dt_woe_list$train[[target]],predict(m3_1, dt_woe_list$train)), '/', gini(dt_woe_list$test[[target]],predict(m3_1, dt_woe_list$test)))
+cat('Final Model GINI:',gini(dt_woe_list$train[[target]],predict(m3_1, dt_woe_list$train)), '/', gini(dt_woe_list$test[[target]],predict(m3_1, dt_woe_list$test)))
 
 final_model <- m3_1
 final_model_features <-  sub("_woe$", "", names(m3_1$model))
