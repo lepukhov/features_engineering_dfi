@@ -18,6 +18,8 @@ export_default_model_report_excel <- function(
     top_share_for_lift = 0.10,      # доля для Lift-in-time (по самым рискованным PD)
     pdo = 50, score_ref = 600, odds_ref = 50, # параметры скоринга Score = A - B*log(odds)
     excel_path = "default_model_report.xlsx",
+    # Лист: сведения по факторам (готовая таблица)
+    dt_enriched_info = NULL,        # (опц.) готовая таблица для листа 2.2b
     overwrite = TRUE
 ) {
   req <- c("openxlsx","ggplot2","data.table","scorecard")
@@ -382,6 +384,8 @@ export_default_model_report_excel <- function(
   feature_metrics_df <- Reduce(function(x, y) merge(x, y, by = "variable", all = TRUE),
                                list(iv_df, per_feature_gini_df))
   feature_metrics_df$iv_test <- as.numeric(iv_test_vec[match(feature_metrics_df$variable, names(iv_test_vec))])
+  # Таблица для листа 2.2b — берём готовую dt_enriched_info, если передана
+  enriched_info_df <- if (!is.null(dt_enriched_info)) as.data.frame(dt_enriched_info) else data.frame()
   
   # Пошаговый вклад в итоговый GINI (Train), порядок по значимости (Wald chi2)
   if (!is.null(model) && nrow(contrib_df)) {
@@ -524,26 +528,7 @@ export_default_model_report_excel <- function(
     labs(title = "Распределение скоринговых баллов", x = "Score", y = "Count") +
     y_2dec() + white_theme
   
-  # Cut-off
-  cutoff_tbl <- function(df, nm, cutoffs) {
-    res <- lapply(cutoffs, function(cu) {
-      approved <- which(is.finite(df$.__pd__) & df$.__pd__ <= cu)
-      pct_approved <- length(approved) / nrow(df)
-      def_rate_approved <- if (length(approved)) mean(df$.__y__[approved]) else NA_real_
-      losses <- NA_real_
-      if (length(approved)) {
-        if (!is.null(exposure_col) && exposure_col %in% names(df)) {
-          losses <- sum(df[[exposure_col]][approved] * df$.__y__[approved] * lgd, na.rm = TRUE)
-        } else if (is.finite(loss_per_default)) {
-          losses <- sum(df$.__y__[approved], na.rm = TRUE) * loss_per_default
-        }
-      }
-      data.frame(выборка = nm, cutoff_pd = cu, pct_approved = pct_approved,
-                 def_rate_approved = def_rate_approved, exp_losses = losses, stringsAsFactors = FALSE)
-    })
-    do.call(rbind, res)
-  }
-  cutoff_df <- rbind(cutoff_tbl(train,"Train",cutoffs), cutoff_tbl(test,"Test",cutoffs), cutoff_tbl(oot,"OOT",cutoffs))
+  # Cut-off — лист и расчёты убраны по требованию
   
   # Книга Excel
   wb <- openxlsx::createWorkbook()
@@ -560,10 +545,16 @@ export_default_model_report_excel <- function(
     openxlsx::insertImage(wb, "1.1_Описание_выборок", save_plot_png(plot_counts_defrate), startRow = 10, startCol = 1, width = 10, height = 5, units = "in")
   }
   
+  # Новая страница: 2.2b — Описания/IV/Drop Reasons (enriched info)
+  if (nrow(enriched_info_df)) {
+    openxlsx::addWorksheet(wb, "1.2_Отбор_переменных")
+    openxlsx::writeData(wb, "1.2_Отбор_переменных", enriched_info_df)
+  }
+  
   # 1.2 — качество данных
-  openxlsx::addWorksheet(wb, "1.2_Качество_данных")
-  openxlsx::writeData(wb, "1.2_Качество_данных", miss_tbl)
-  openxlsx::insertImage(wb, "1.2_Качество_данных", save_plot_png(plot_psi_time), startRow = 2, startCol = 10, width = 10, height = 5, units = "in")
+  openxlsx::addWorksheet(wb, "1.3_Качество_данных")
+  openxlsx::writeData(wb, "1.3_Качество_данных", miss_tbl)
+  openxlsx::insertImage(wb, "1.3_Качество_данных", save_plot_png(plot_psi_time), startRow = 2, startCol = 10, width = 10, height = 5, units = "in")
   
   # 1.3 — OOT
   openxlsx::addWorksheet(wb, "1.3_OOT")
@@ -588,6 +579,7 @@ export_default_model_report_excel <- function(
     order(combined_out$variable)
   }
   openxlsx::writeData(wb, "2.2_IV_Gini_Вклад", combined_out[ord_idx, ])
+
   
   # 2.3 — WOE таблицы/графики
   openxlsx::addWorksheet(wb, "2.3_WOE_Таблицы")
@@ -621,13 +613,9 @@ export_default_model_report_excel <- function(
   openxlsx::insertImage(wb, "4.1_Score_распределения", save_plot_png(score_hist),           startRow = 15, startCol = 1, width = 8, height = 5, units = "in")
   openxlsx::insertImage(wb, "4.1_Score_распределения", save_plot_png(drate_by_decile_plot), startRow = 35, startCol = 1, width = 8, height = 5, units = "in")
   
-  # 4.2 — Cutoff
-  openxlsx::addWorksheet(wb, "4.2_Cutoff")
-  openxlsx::writeData(wb, "4.2_Cutoff", cutoff_df)
-  
-  # Удалены по требованию: "2.1_Предикторы" и "4.3_PSI"
-  
+
   dir.create(dirname(excel_path), recursive = TRUE, showWarnings = FALSE)
   openxlsx::saveWorkbook(wb, excel_path, overwrite = overwrite)
   invisible(excel_path)
 }
+

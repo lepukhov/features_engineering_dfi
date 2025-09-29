@@ -6,7 +6,8 @@ OUTPUT_DIR <- file.path(getwd(), 'output')
 project_directory = OUTPUT_DIR
 
 # Имена входных файлов (положите их в папку data/)
-INPUT_FACTORS_FILE <- 'factors_first_portion.csv'
+INPUT_FACTORS_FILE <- 'Indrive Pilot New drivers Sep 2025 - Indrive_target_score.csv'
+SKIP_FACTORS <- c('true_caller_city', 'whatsapp_about')
 
 #только для v2
 JUICY_FILE <- 'Juicy.xlsx'
@@ -18,14 +19,14 @@ DICT_IPCITY_FILE <- 'dict_ipCity_enrichment.csv'
 
 # Рантайм настройки
 VERBOSE <- TRUE
-OOT_CUTOFF_DATE <- as.Date('2025-05-01') #значения старше этой даты будут выкидываться
+OOT_CUTOFF_DATE <- as.Date('2025-10-01') #значения старше этой даты будут выкидываться
 
 #Настройки базовые
-target = 'DPD30_factor' #поле где содержится целевая переменная в формате 0/1
+target = 'target' #поле где содержится целевая переменная в формате 0/1
 id = 'loan_id' #поле в котором содержится loan_id
-loan_date = 'issuedate' #поле в котором содержится дата 
+loan_date = 'loan_date' #поле в котором содержится дата 
 ratio_train = 0.7 #проценты обучающей выборки (за искл. oot)
-oot_months = 1 #количество месяцевы, которые попадют в out-of-time
+oot_period_months = 1 #количество месяцевы, которые попадют в out-of-time
 
 #Feature Engeneering Settings
 top_num_for_pairs = 5 #количество топ-переменных которые будут попарно взаимодействия, выбираются по спирману

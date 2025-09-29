@@ -33,7 +33,12 @@ VERBOSE <- get0('VERBOSE', ifnotfound = FALSE)
 # Data paths
 factors_path <- file.path(DATA_DIR, INPUT_FACTORS_FILE)
 
-all_loans <- readr::read_delim(factors_path, quote = "\"", delim =';', locale = readr::locale(encoding = "Windows-1251"), show_col_types = FALSE, progress = TRUE)
+all_loans <- readr::read_csv(factors_path, show_col_types = FALSE, progress = TRUE,guess_max = 1)
+all_loans <- all_loans %>% dplyr::select(!any_of(c(SKIP_FACTORS)))
+
+if (is.character(all_loans[[loan_date]])) {
+  all_loans[[loan_date]] <- parse_date(all_loans[[loan_date]], '%m/%d/%Y')
+}
 
 N_CORES <- max(1L, parallel::detectCores(logical = TRUE) - 1L)
 cl <- NULL
@@ -47,40 +52,11 @@ if (!is.null(cl)) on.exit({ try(parallel::stopCluster(cl), silent = TRUE) }, add
 if (VERBOSE) glimpse(all_loans)
 
 dt <- all_loans
-dt <- dt %>% filter(dt[[loan_date]] <= OOT_CUTOFF_DATE)
-
-dt <- dt %>% filter(!is.na(DPD30_factor))
-dt[[target]] <- as.double(dt[[target]])
+dt <- dt %>% filter(.data[[loan_date]] <= OOT_CUTOFF_DATE)
+dt <- dt %>% filter(!is.na(.data[[target]]))
 
 dt <- dt %>% mutate(across(where(is.character), ~ gsub(",", ".", .)))
 dt <- dt %>% mutate(across(where(is.character), ~  gsub("[^[:alnum:].]", "", .)))
-
-replace_zero_with_na_in_categoricals <- function(data) {
-  if (!is.data.frame(data)) stop("Input must be a data.frame or tibble")
-  data[] <- lapply(data, function(col) {
-    if (is.factor(col)) {
-      old_levels <- levels(col)
-      col_char <- as.character(col)
-      idx <- trimws(col_char) == "0"
-      if (any(idx)) {
-        col_char[idx] <- NA_character_
-      }
-      zero_levels <- old_levels[trimws(old_levels) == "0"]
-      new_levels <- setdiff(old_levels, zero_levels)
-      factor(col_char, levels = new_levels, ordered = is.ordered(col))
-    } else if (is.character(col)) {
-      idx <- trimws(col) == "0"
-      if (any(idx)) {
-        col[idx] <- NA_character_
-      }
-      col
-    } else {
-      col
-    }
-  })
-  data
-}
-dt <- replace_zero_with_na_in_categoricals(dt)
 
 coerce_numeric_cols <- function(df) {
   convert_col <- function(x) {
@@ -103,8 +79,8 @@ coerce_numeric_cols <- function(df) {
 dt <- coerce_numeric_cols(dt)
 
 cutoff_dt <- max(dt[[loan_date]]) - months(oot_period_months)
-dt_initial <- dt %>% filter(issuedate < cutoff_dt)
-dt_oot <- dt %>% filter(issuedate >= cutoff_dt)
+dt_initial <- dt %>% filter(.data[[loan_date]] <= cutoff_dt)
+dt_oot <- dt %>% filter(.data[[loan_date]] > cutoff_dt)
 
 dt_list = split_df(dt_initial, y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
 
@@ -123,7 +99,7 @@ join_if_exists <- function(base_df, dict_path, key_col) {
   dplyr::left_join(base_df, dict, join_by(!!as.name(key_col)))
 }
 
-fe <- engineer_features_train(dt_list$train,
+fe <- engineer_features_train(dt_list$train %>% dplyr::select(any_of(setdiff(names(dt_list$train), c(loan_date)))),
                               target = target,
                               top_num_for_pairs = top_num_for_pairs,
                               id_col = id,
@@ -137,13 +113,16 @@ fe <- engineer_features_train(dt_list$train,
                               xgb_leaf_use_first_n_trees = xgb_leaf_use_first_n_trees,
                               n_folds = n_folds)
 
+#dt_train_enriched <- dt_list$train
 dt_train_enriched <- fe$train_features
 dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))
 dt_train_enriched <- dt_list$train %>% left_join(dt_train_enriched, join_by(loan_id))
 
+#dt_test_enriched <- dt_list$test
 dt_test_enriched <- fe$predict_new(dt_list$test)
 dt_test_enriched <- dt_list$test %>% left_join(dt_test_enriched, join_by(loan_id))
 
+#dt_oot_enriched <- dt_oot
 dt_oot_enriched <- fe$predict_new(dt_oot)
 dt_oot_enriched <- dt_oot %>% left_join(dt_oot_enriched, join_by(loan_id))
 
@@ -159,7 +138,7 @@ drop_info_df <- data.frame(
   stringsAsFactors = FALSE
 )
 
-bins = woebin(dt_train_enriched, y=c(target), check_cate_num = FALSE, method = 'tree', stop_limit = stop_limit, count_distr_limit = count_distr_limit, no_cores = NULL, bin_num_limit = bin_num_limit)
+bins = woebin(dt_train_enriched, y=c(target), check_cate_num= FALSE, ignore_const_cols = FALSE, ignore_datetime_cols = TRUE, method = 'tree', stop_limit = stop_limit, count_distr_limit = count_distr_limit, no_cores = NULL, bin_num_limit = bin_num_limit)
 dt_woe_list = lapply(dt_list, function(x) woebin_ply(x, bins))
 
 dt_woe_list$train = var_filter(dt_woe_list$train, y=c(target) ,lims = list(missing_rate = missing_rate, identical_rate = identical_rate, info_value = info_value_cutoff))
@@ -171,7 +150,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_var_filter, Reaso
 
 m1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = dt_woe_list$train)
 
-cat('Stage 1 \n', 'Features:', lenght(names(m1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1, dt_woe_list$train)),
+cat('Stage 1 \n', 'Features:', length(names(m1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1, dt_woe_list$train)),
 gini(dt_woe_list$test[[target]],predict(m1, dt_woe_list$test)), '\n')
 
 vars <- dt_woe_list$train %>% dplyr::select(where(is.numeric))
@@ -186,7 +165,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_corr, Reason = 'C
 }
 
 m1_1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = vars)
-cat('Stage 2 \n', 'Features:', lenght(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
+cat('Stage 2 \n', 'Features:', length(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m1_1, dt_woe_list$test)), '\n')
 
 vifs <- vif(m1_1)
@@ -194,7 +173,7 @@ vifs <- tibble(name = names(vifs), gvif = vifs)
 vifs <- vifs %>% dplyr::filter( gvif > gvif_cutoff) %>% dplyr::select(name)
 vars <- vars %>% dplyr::select(!any_of(vifs$name))
 m1_1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = vars)
-cat('Stage 3 \n', 'Features:', lenght(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
+cat('Stage 3 \n', 'Features:', length(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m1_1, dt_woe_list$test)), '\n')
 
 selected_vifs <- coef(m1_1)
@@ -242,7 +221,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_lasso, Reason = '
 }
 
 m2_1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = dt_woe_list$train)
-cat('Stage 4 \n', 'Features:', lenght(names(m2_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m2_1, dt_woe_list$train)),
+cat('Stage 4 \n', 'Features:', length(names(m2_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m2_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m2_1, dt_woe_list$test)), '\n')
 
 choose_B <- function(n_vars) {
@@ -279,7 +258,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_boot, Reason = 'B
 }
 
 m3_1 = glm(as.formula(boot2_1$OrigStepAIC$formula), family = binomial(), data = dt_woe_list$train)
-cat('Stage 5 \n', 'Features:', lenght(names(m3_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m3_1, dt_woe_list$train)),
+cat('Stage 5 \n', 'Features:', length(names(m3_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m3_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m3_1, dt_woe_list$test)), '\n')
 
 
@@ -298,7 +277,7 @@ dt_enriched_describe <- scorecard::describe(dt_enriched_woe %>% dplyr::select(!a
 dt_enriched_iv <- scorecard::iv(dt = dt_enriched_woe %>% dplyr::select(!any_of(c(loan_date, id))) , y = c(target))
 dt_enriched_psi <- calculate_psi(df = dt_enriched_woe, target_col = target, date_col = loan_date)
 
-dt_enriched_info <- dt_enriched_describe %>% left_join(dt_enriched_iv)  %>% left_join(dt_enriched_psi)
+dt_enriched_info <- dt_enriched_describe %>% left_join(dt_enriched_iv) %>% left_join(dt_enriched_psi)
 drop_info_df_final <- drop_info_df
 drop_info_df_final$Var <- paste0(drop_info_df_final$Var, "_woe")
 names(drop_info_df_final)[1] = 'variable'
@@ -315,6 +294,7 @@ export_default_model_report_excel(
   bins = final_bins,
   feature_cols = names(final_bins),
   excel_path = file.path(project_directory, paste0("model_report_", format(Sys.time(), "%d%m%Y%H%M%S") ,".xlsx")),
+  dt_enriched_info = dt_enriched_info,
   overwrite = TRUE
 )
 

@@ -368,6 +368,7 @@ export_default_model_report_excel(
   bins = final_bins,
   feature_cols = names(final_bins),
   excel_path = file.path(project_directory, paste0("model_report_", format(Sys.time(), "%d%m%Y%H%M%S") ,".xlsx")),
+  dt_enriched_info = dt_enriched_info,
   overwrite = TRUE
 )
 

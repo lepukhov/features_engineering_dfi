@@ -59,10 +59,27 @@
   out
 }
 
+
+.safe_spearman_corr <- function(x, y) {
+  if (is.null(x) || is.null(y)) return(NA_real_)
+  xx <- suppressWarnings(as.numeric(x))
+  yy <- suppressWarnings(as.numeric(y))
+  ok <- is.finite(xx) & is.finite(yy)
+  if (!any(ok)) return(NA_real_)
+  xx <- xx[ok]
+  yy <- yy[ok]
+  if (length(xx) < 2L || length(unique(xx)) < 2L || length(unique(yy)) < 2L) return(NA_real_)
+  tryCatch(
+    suppressWarnings(stats::cor(xx, yy, method = "spearman")),
+    error = function(e) NA_real_
+  )
+}
+
 .select_top_numeric_by_corr <- function(df, y01, numeric_vars, top_k = 5) {
   if (length(numeric_vars) == 0) return(character(0))
   cs <- sapply(numeric_vars, function(v) {
-    val <- suppressWarnings(stats::cor(df[[v]], y01, use = "complete.obs", method = "spearman"))
+#    val <- suppressWarnings(stats::cor(df[[v]], y01, use = "complete.obs", method = "spearman"))
+    val <- .safe_spearman_corr(df[[v]], y01)
     if (is.na(val) || !is.finite(val)) 0 else abs(val)
   })
   names(sort(cs, decreasing = TRUE))[seq_len(min(top_k, length(cs)))]
