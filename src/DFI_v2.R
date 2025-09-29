@@ -64,7 +64,7 @@ all_loans_a$total_score <- as.numeric(all_loans_a$total_score)
 all_loans_a <- all_loans_a %>% filter(!is.na(DPD30_factor))
 all_loans_a$DPD30_factor <- as.double(all_loans_a$DPD30_factor)
 all_loans_a$total_score <- as.numeric(all_loans_a$total_score)
-cutoff_all_loans <- max(all_loans_a[[loan_date]]) - months(oot_months)
+cutoff_all_loans <- max(all_loans_a[[loan_date]]) - months(oot_period_months)
 all_loans_a_init <- all_loans_a %>% filter(issuedate < cutoff_all_loans)
 all_loans_a_oot <- all_loans_a %>%filter(issuedate >= cutoff_all_loans)
 
@@ -134,7 +134,7 @@ coerce_numeric_cols <- function(df) {
 }
 dt <- coerce_numeric_cols(dt)
 
-cutoff_dt <- max(dt[[loan_date]]) - months(oot_months)
+cutoff_dt <- max(dt[[loan_date]]) - months(oot_period_months)
 dt_initial <- dt %>% filter(issuedate < cutoff_dt)
 dt_oot <- dt %>% filter(issuedate >= cutoff_dt)
 dt_list = split_df(dt_initial, y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
