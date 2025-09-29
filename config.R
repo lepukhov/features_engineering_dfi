@@ -6,7 +6,7 @@ OUTPUT_DIR <- file.path(getwd(), 'output')
 project_directory = OUTPUT_DIR
 
 # Имена входных файлов (положите их в папку data/)
-INPUT_FACTORS_FILE <- 'Indrive Pilot New drivers Sep 2025 - Indrive_target_score.csv'
+INPUT_FACTORS_FILE <- 'factors_first_portion.csv'
 SKIP_FACTORS <- c('true_caller_city', 'whatsapp_about')
 
 #только для v2
