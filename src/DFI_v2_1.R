@@ -282,7 +282,7 @@ drop_info_df_final <- drop_info_df
 drop_info_df_final$Var <- paste0(drop_info_df_final$Var, "_woe")
 names(drop_info_df_final)[1] = 'variable'
 dt_enriched_info <- dt_enriched_info %>% left_join(drop_info_df_final)
-readr::write_csv(dt_enriched_info, file.path(project_directory ,paste0("dt_enriched_info_", format(Sys.time(), "%d%m%Y%H%M%S") ,".csv")))
+#readr::write_csv(dt_enriched_info, file.path(project_directory ,paste0("dt_enriched_info_", format(Sys.time(), "%d%m%Y%H%M%S") ,".csv")))
 
 export_default_model_report_excel(
   model = final_model,
