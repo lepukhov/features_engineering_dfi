@@ -114,7 +114,7 @@ join_if_exists <- function(base_df, dict_path, key_col) {
   dplyr::left_join(base_df, dict, join_by(!!as.name(key_col)))
 }
 
-fe <- engineer_features_train(dt_list$train %>% dplyr::select(any_of(setdiff(names(dt_list$train), c(loan_date)))),
+fe <- engineer_features_train(dt_list$train,
                               target = target,
                               top_num_for_pairs = top_num_for_pairs,
                               id_col = id,
@@ -126,7 +126,13 @@ fe <- engineer_features_train(dt_list$train %>% dplyr::select(any_of(setdiff(nam
                               xgb_add_leaf_features = xgb_add_leaf_features,
                               xgb_leaf_encoding = "onehot",
                               xgb_leaf_use_first_n_trees = xgb_leaf_use_first_n_trees,
-                              n_folds = n_folds)
+                              n_folds = n_folds,
+                              cat_loss_function = cat_loss_function,
+                              cat_depth = cat_depth,
+                              cat_iterations_oof = cat_iterations_oof,
+                              cat_iterations_full = cat_iterations_full,
+                              cat_learning_rate_oof = cat_learning_rate_oof,
+                              cat_learning_rate_full = cat_learning_rate_full)
 
 #dt_train_enriched <- dt_list$train
 dt_train_enriched <- fe$train_features

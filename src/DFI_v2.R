@@ -214,7 +214,13 @@ fe <- engineer_features_train(dt_list$train,
                               xgb_add_leaf_features = xgb_add_leaf_features,
                               xgb_leaf_encoding = "onehot",
                               xgb_leaf_use_first_n_trees = xgb_leaf_use_first_n_trees,
-                              n_folds = n_folds)
+                              n_folds = n_folds,
+                              cat_loss_function = cat_loss_function,
+                              cat_depth = cat_depth,
+                              cat_iterations_oof = cat_iterations_oof,
+                              cat_iterations_full = cat_iterations_full,
+                              cat_learning_rate_oof = cat_learning_rate_oof,
+                              cat_learning_rate_full = cat_learning_rate_full)
 
 dt_train_enriched <- fe$train_features
 dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))

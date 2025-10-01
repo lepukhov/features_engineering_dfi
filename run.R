@@ -17,6 +17,13 @@ ensure_packages <- function(pkgs) {
   }
 }
 
+  installed <- rownames(installed.packages())
+  to_install <- setdiff('catboost', installed)
+  if (length(to_install) > 0) {
+    install.packages(to_install, dependencies = TRUE)
+  }
+}
+
 required_packages <- c(
   "readr","lubridate","dplyr","data.table","ggplot2","stringr","rsample",
   "scorecard","ModelMetrics","modelsummary","tidypredict","precrec","caret","tornado",

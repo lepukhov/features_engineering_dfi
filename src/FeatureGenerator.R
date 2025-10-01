@@ -12,7 +12,7 @@
 #Счётчик пропусков в числовых: count_missing_num
 #
 #Полиномиальные признаки (degree=2):
-  
+
 #квадраты: poly2__<var>__sq
 #попарные произведения: poly2__A__x__B
 #Только для выбранных топ‑K числовых
@@ -24,10 +24,10 @@
 #CatBoost: oof_cat_prob
 #OOF-логика: для каждого фолда обучается модель на трен‑части и предсказывается hold‑out фолд; склейка даёт полный OOF-вектор.
 #Обучение финальных полных моделей (на всей train выборке) для последующего скоринга:
-  
+
 #сохраняются в result$models
 #XGBoost leaf index encoding (опционально):
-  
+
 #На полной XGBoost‑модели извлекаются индексы листьев (predleaf=TRUE)
 #Режимы:
 #index: столбцы xgb_leaf_tNNN с номерами листьев (целые)
@@ -59,7 +59,6 @@
   out
 }
 
-
 .safe_spearman_corr <- function(x, y) {
   if (is.null(x) || is.null(y)) return(NA_real_)
   xx <- suppressWarnings(as.numeric(x))
@@ -78,7 +77,6 @@
 .select_top_numeric_by_corr <- function(df, y01, numeric_vars, top_k = 5) {
   if (length(numeric_vars) == 0) return(character(0))
   cs <- sapply(numeric_vars, function(v) {
-#    val <- suppressWarnings(stats::cor(df[[v]], y01, use = "complete.obs", method = "spearman"))
     val <- .safe_spearman_corr(df[[v]], y01)
     if (is.na(val) || !is.finite(val)) 0 else abs(val)
   })
@@ -171,7 +169,18 @@ engineer_features_train <- function(
     # XGBoost leaf features
     xgb_add_leaf_features = FALSE,          # TRUE to add leaf features
     xgb_leaf_encoding = c("index", "onehot")[2],  # "index" or "onehot" (default onehot)
-    xgb_leaf_use_first_n_trees = NULL       # e.g. 100 to limit trees used for leaf features
+    xgb_leaf_use_first_n_trees = NULL,      # e.g. 100 to limit trees used for leaf features
+    
+    # CatBoost hyperparams
+    cat_loss_function = "Logloss",
+    cat_depth = 6L,
+    cat_iterations_oof = 500L,
+    cat_iterations_full = 700L,
+    cat_learning_rate_oof = 0.08,
+    cat_learning_rate_full = 0.06,
+    cat_verbose = 0,
+    cat_random_seed = seed,
+    cat_params_extra = NULL
 ) {
   stopifnot(target %in% names(df))
   t0 <- Sys.time()
@@ -210,15 +219,27 @@ engineer_features_train <- function(
   
   .log("Target positive rate=%.4f; id_col=%s", mean(y01), ifelse(is.null(id_col), "NULL", id_col))
   
-  # Types
+  # Types — normalize to avoid CatBoost issues: characters→factor, dates/logicals→numeric
   cat_vars <- names(df)[sapply(df, function(x) is.factor(x) || is.character(x))]
   num_vars <- names(df)[sapply(df, is.numeric) | sapply(df, is.integer)]
+  # Convert characters to factors with MISSING level
   for (v in cat_vars) {
     x <- df[[v]]
-    x <- as.character(x)
-    x[is.na(x) | x == ""] <- "MISSING"
-    df[[v]] <- factor(x)
+    if (is.character(x)) {
+      x <- as.character(x)
+      x[is.na(x) | x == ""] <- "MISSING"
+      df[[v]] <- factor(x)
+    }
   }
+  # Convert dates and logicals to numeric
+  for (v in names(df)) {
+    x <- df[[v]]
+    if (inherits(x, c("Date","POSIXct","POSIXlt"))) df[[v]] <- as.numeric(x)
+    else if (is.logical(x)) df[[v]] <- as.integer(x)
+  }
+  # Recompute sets after conversions
+  cat_vars <- names(df)[sapply(df, is.factor)]
+  num_vars <- names(df)[sapply(df, is.numeric) | sapply(df, is.integer)]
   .log("Detected vars: numeric=%d, categorical=%d", length(num_vars), length(cat_vars))
   
   # Folds
@@ -487,38 +508,42 @@ engineer_features_train <- function(
     pb <- .make_pb(n_folds)
     for (i in seq_along(folds)) {
       te_idx <- folds[[i]]; tr_idx <- setdiff(seq_len(nrow(df)), te_idx)
-      tr_pool <- catboost::catboost.load_pool(data = df[tr_idx, , drop = FALSE], label = y01[tr_idx], cat_features = cat_cat_idx)
+      tr_pool <- catboost::catboost.load_pool(data = df[tr_idx, , drop = FALSE], label = y01[tr_idx])
+      cat_params_oof <- list(
+        loss_function = cat_loss_function,
+        depth = as.integer(cat_depth),
+        iterations = as.integer(cat_iterations_oof),
+        learning_rate = cat_learning_rate_oof,
+        random_seed = cat_random_seed,
+        verbose = cat_verbose
+      )
+      if (!is.null(cat_params_extra)) cat_params_oof <- utils::modifyList(cat_params_oof, cat_params_extra)
       mod <- catboost::catboost.train(
         learn_pool = tr_pool,
         test_pool = NULL,
-        params = list(
-          loss_function = "Logloss",
-          depth = 6,
-          iterations = 500,
-          learning_rate = 0.08,
-          random_seed = seed,
-          verbose = FALSE
-        )
+        params = cat_params_oof
       )
-      te_pool <- catboost::catboost.load_pool(data = df[te_idx, , drop = FALSE], cat_features = cat_cat_idx)
+      te_pool <- catboost::catboost.load_pool(data = df[te_idx, , drop = FALSE])
       pp <- catboost::catboost.predict(mod, te_pool, prediction_type = "Probability")
       if (is.null(cat_oof)) cat_oof <- rep(NA_real_, nrow(df))
       cat_oof[te_idx] <- pp
       .set_pb(pb, i)
     }
     .close_pb(pb)
-    full_pool <- catboost::catboost.load_pool(data = df, label = y01, cat_features = cat_cat_idx)
+    full_pool <- catboost::catboost.load_pool(data = df, label = y01)
+    cat_params_full <- list(
+      loss_function = cat_loss_function,
+      depth = as.integer(cat_depth),
+      iterations = as.integer(cat_iterations_full),
+      learning_rate = cat_learning_rate_full,
+      random_seed = cat_random_seed,
+      verbose = cat_verbose
+    )
+    if (!is.null(cat_params_extra)) cat_params_full <- utils::modifyList(cat_params_full, cat_params_extra)
     cat_model_full <- catboost::catboost.train(
       learn_pool = full_pool,
       test_pool = NULL,
-      params = list(
-        loss_function = "Logloss",
-        depth = 6,
-        iterations = 700,
-        learning_rate = 0.06,
-        random_seed = seed,
-        verbose = FALSE
-      )
+      params = cat_params_full
     )
     .log("CatBoost OOF done in %.2fs", as.numeric(difftime(Sys.time(), t1, units = "secs")))
   } else if (use_catboost) {
@@ -676,14 +701,22 @@ engineer_features_train <- function(
       }
     }
     if (!is.null(cat_model_full)) {
-      # Ensure all categorical variables have the same levels as in training
-      nd_cat <- nd
-      for (v in cat_vars) {
-        if (v %in% names(nd_cat) && v %in% names(df)) {
-          nd_cat[[v]] <- factor(nd_cat[[v]], levels = levels(df[[v]]))
+      # Align columns to training set and ensure types are compatible
+      nd_cat <- nd[, names(df), drop = FALSE]
+      for (v in names(nd_cat)) {
+        x <- nd_cat[[v]]
+        if (v %in% cat_vars) {
+          # categorical: ensure factor with training levels
+          x <- as.character(x)
+          x[is.na(x) | x == ""] <- "MISSING"
+          nd_cat[[v]] <- factor(x, levels = levels(df[[v]]))
+        } else if (inherits(x, c("Date","POSIXct","POSIXlt"))) {
+          nd_cat[[v]] <- as.numeric(x)
+        } else if (is.logical(x)) {
+          nd_cat[[v]] <- as.integer(x)
         }
       }
-      np <- catboost::catboost.load_pool(data = nd_cat, cat_features = cat_cat_idx)
+      np <- catboost::catboost.load_pool(data = nd_cat)
       pp <- catboost::catboost.predict(cat_model_full, np, prediction_type = "Probability")
       new_frames <- c(new_frames, list(data.frame(oof_cat_prob = pp, check.names = FALSE)))
     }
