@@ -33,12 +33,51 @@ VERBOSE <- get0('VERBOSE', ifnotfound = FALSE)
 # Data paths
 factors_path <- file.path(DATA_DIR, INPUT_FACTORS_FILE)
 
-all_loans <- readr::read_csv(factors_path, show_col_types = FALSE, progress = TRUE,guess_max = 1)
+all_loans <- readr::read_csv2(factors_path, show_col_types = FALSE, progress = TRUE,guess_max = 1)
 all_loans <- all_loans %>% dplyr::select(!any_of(c(SKIP_FACTORS)))
 
-if (is.character(all_loans[[loan_date]])) {
-  all_loans[[loan_date]] <- parse_date(all_loans[[loan_date]], '%m/%d/%Y')
+# Ensure loan_date is Date (auto-detects formats and types)
+ensure_date_column <- function(df, date_col_name) {
+  if (!date_col_name %in% names(df)) return(df)
+  x <- df[[date_col_name]]
+  # Already Date
+  if (inherits(x, "Date")) return(df)
+  # POSIX -> Date
+  if (inherits(x, c("POSIXct","POSIXlt"))) {
+    df[[date_col_name]] <- as.Date(x)
+    return(df)
+  }
+  # Numeric: try Excel serial date
+  if (is.numeric(x)) {
+    cand <- as.Date(x, origin = "1899-12-30")
+    yrs <- suppressWarnings(as.numeric(format(cand, "%Y")))
+    ok <- is.finite(yrs) & yrs >= 1990 & yrs <= 2100
+    if (mean(ok, na.rm = TRUE) > 0.8) {
+      df[[date_col_name]] <- cand
+      return(df)
+    }
+  }
+  # Character / factor: try multiple formats
+  if (is.character(x) || is.factor(x)) {
+    xc <- as.character(x)
+    xc[trimws(xc) == ""] <- NA_character_
+    parsed <- suppressWarnings(lubridate::parse_date_time(
+      xc,
+      orders = c(
+        "Ymd HMS", "Ymd HM", "Ymd H", "Ymd",
+        "dmY HMS", "dmY HM", "dmY H", "dmY",
+        "mdY HMS", "mdY HM", "mdY H", "mdY",
+        "Y-m-d HMS", "Y-m-d HM", "Y-m-d H", "Y-m-d",
+        "d.m.Y HMS", "d.m.Y HM", "d.m.Y H", "d.m.Y"
+      ),
+      tz = "UTC", truncated = 3
+    ))
+    df[[date_col_name]] <- as.Date(parsed)
+    return(df)
+  }
+  df
 }
+all_loans <- ensure_date_column(all_loans, loan_date)
 
 #N_CORES <- max(1L, parallel::detectCores(logical = TRUE) - 1L)
 #cl <- NULL
@@ -47,7 +86,7 @@ if (is.character(all_loans[[loan_date]])) {
 #  doParallel::registerDoParallel(cl)
 #}
 
-if (!is.null(cl)) on.exit({ try(parallel::stopCluster(cl), silent = TRUE) }, add = TRUE)
+#if (!is.null(cl)) on.exit({ try(parallel::stopCluster(cl), silent = TRUE) }, add = TRUE)
 
 if (VERBOSE) glimpse(all_loans)
 
@@ -137,15 +176,15 @@ fe <- engineer_features_train(dt_list$train,
 #dt_train_enriched <- dt_list$train
 dt_train_enriched <- fe$train_features
 dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))
-dt_train_enriched <- dt_list$train %>% left_join(dt_train_enriched, join_by(loan_id))
+dt_train_enriched <- dt_list$train %>% left_join(dt_train_enriched, join_by(.data[[id]]))
 
 #dt_test_enriched <- dt_list$test
 dt_test_enriched <- fe$predict_new(dt_list$test)
-dt_test_enriched <- dt_list$test %>% left_join(dt_test_enriched, join_by(loan_id))
+dt_test_enriched <- dt_list$test %>% left_join(dt_test_enriched, join_by(.data[[id]]))
 
 #dt_oot_enriched <- dt_oot
 dt_oot_enriched <- fe$predict_new(dt_oot)
-dt_oot_enriched <- dt_oot %>% left_join(dt_oot_enriched, join_by(loan_id))
+dt_oot_enriched <- dt_oot %>% left_join(dt_oot_enriched, join_by(.data[[id]]))
 
 if (VERBOSE) glimpse(dt_oot_enriched)
 
@@ -321,9 +360,42 @@ export_default_model_report_excel(
   overwrite = TRUE
 )
 
-#if (!is.null(cl)) {
-#  parallel::stopCluster(cl)
-#}
+
+# Export scored initial sample (train/test/oot flag per loan)
+try({
+  # Predictor names expected by the model (WOE columns)
+  predictor_names_woe <- setdiff(names(stats::coef(final_model)), "(Intercept)")
+  feature_base <- sub("_woe$", "", predictor_names_woe)
+  feature_base <- intersect(feature_base, names(final_bins))
+  # Scoring helper
+  score_split <- function(df_raw, split_name) {
+    keep_cols <- unique(c(feature_base, id, loan_date, target))
+    keep_cols <- intersect(keep_cols, names(df_raw))
+    base <- df_raw[, keep_cols, drop = FALSE]
+    # Apply WOE to features used by the final model
+    w_input <- base[, intersect(feature_base, names(base)), drop = FALSE]
+    wdf <- scorecard::woebin_ply(w_input, bins = final_bins)
+    # Assemble newdata with exact predictor columns expected by the model
+    newdata <- wdf[, intersect(predictor_names_woe, names(wdf)), drop = FALSE]
+    missing_cols <- setdiff(predictor_names_woe, names(newdata))
+    for (mc in missing_cols) newdata[[mc]] <- 0
+    newdata <- newdata[, predictor_names_woe, drop = FALSE]
+    pd <- tryCatch(stats::predict(final_model, newdata = newdata, type = "response"), error = function(e) rep(NA_real_, nrow(wdf)))
+    out <- base
+    out[["__pd__"]] <- pd
+    out[["__split__"]] <- split_name
+    out
+  }
+  scored_train <- score_split(dt_list$train, "train")
+  scored_test  <- score_split(dt_list$test,  "test")
+  scored_oot   <- score_split(dt_oot,       "oot")
+  scored_all <- dplyr::bind_rows(scored_train, scored_test, scored_oot)
+  # Order columns: id, date, target, split, pd, then features
+  ord_cols <- c(intersect(id, names(scored_all)), intersect(loan_date, names(scored_all)), intersect(target, names(scored_all)), "__split__", "__pd__")
+  other_cols <- setdiff(names(scored_all), ord_cols)
+  scored_all <- scored_all[, c(ord_cols, other_cols), drop = FALSE]
+  readr::write_csv(scored_all, file.path(project_directory, paste0("initial_scored_", format(Sys.time(), "%d%m%Y%H%M%S"), ".csv")))
+}, silent = TRUE)
 
 cat('Работа с ', INPUT_FACTORS_FILE, ' завершена в ',  format(Sys.time(), "%d%m%Y%H%M%S"))
 

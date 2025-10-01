@@ -432,6 +432,23 @@ export_default_model_report_excel <- function(
   # 2.3 — WOE
   woe_tables <- lapply(names(bins), function(v) cbind(variable = v, bins[[v]]))
   woe_table_df <- data.table::rbindlist(woe_tables, fill = TRUE)
+
+  if (!is.null(model)) {
+    intercept_val <- tryCatch({
+      cf <- stats::coef(model)
+      if ("(Intercept)" %in% names(cf)) unname(cf["(Intercept)"]) else NA_real_
+    }, error = function(e) NA_real_)
+    if (is.finite(intercept_val)) {
+      intercept_df <- data.frame(
+        variable = "(Intercept)",
+        bin = "(Intercept)",
+        estimate = intercept_val,
+        stringsAsFactors = FALSE
+      )
+      woe_table_df <- data.table::rbindlist(list(woe_table_df, intercept_df), fill = TRUE)
+    }
+  }
+  
   woe_plots <- tryCatch(scorecard::woebin_plot(bins), error = function(e) NULL)
   
   # Корреляции (WOE, Train)

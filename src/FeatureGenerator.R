@@ -87,12 +87,18 @@
   out <- list()
   for (v in vars) {
     x <- df[[v]]
+    if (inherits(x, c("Date","POSIXct","POSIXlt"))) x <- as.numeric(x)
+    if (is.logical(x)) x <- as.integer(x)
     out[[paste0("poly2__", v, "__sq")]] <- x * x
   }
   if (length(vars) >= 2) {
     comb <- utils::combn(vars, 2, simplify = FALSE)
     for (p in comb) {
       x <- df[[p[1]]]; y <- df[[p[2]]]
+      if (inherits(x, c("Date","POSIXct","POSIXlt"))) x <- as.numeric(x)
+      if (inherits(y, c("Date","POSIXct","POSIXlt"))) y <- as.numeric(y)
+      if (is.logical(x)) x <- as.integer(x)
+      if (is.logical(y)) y <- as.integer(y)
       out[[paste0("poly2__", p[1], "__x__", p[2])]] <- x * y
     }
   }
@@ -251,6 +257,8 @@ engineer_features_train <- function(
   composite_list <- list()
   for (v in num_vars) {
     x <- df[[v]]
+    if (inherits(x, c("Date","POSIXct","POSIXlt"))) x <- as.numeric(x)
+    if (is.logical(x)) x <- as.integer(x)
     if (all(is.na(x))) next
     minx <- suppressWarnings(min(x, na.rm = TRUE))
     if (is.finite(minx) && minx >= 0) composite_list[[paste0("log1p__", v)]] <- log1p(x)
@@ -577,6 +585,16 @@ engineer_features_train <- function(
     nd <- new_df
     new_frames <- list()
     
+    # Normalize types similar to training: dates/logicals to numeric
+    for (v in names(nd)) {
+      x <- nd[[v]]
+      if (inherits(x, c("Date","POSIXct","POSIXlt"))) {
+        nd[[v]] <- as.numeric(x)
+      } else if (is.logical(x)) {
+        nd[[v]] <- as.integer(x)
+      }
+    }
+    
     # Keep ID if present
     if (!is.null(id_col) && id_col %in% names(nd)) {
       new_frames <- c(new_frames, list(setNames(data.frame(nd[[id_col]], check.names = FALSE), id_col)))
@@ -604,6 +622,8 @@ engineer_features_train <- function(
     for (v in num_vars) {
       if (!v %in% names(nd)) next
       x <- nd[[v]]
+      if (inherits(x, c("Date","POSIXct","POSIXlt"))) x <- as.numeric(x)
+      if (is.logical(x)) x <- as.integer(x)
       minx <- suppressWarnings(min(x, na.rm = TRUE))
       if (is.finite(minx) && minx >= 0) comp_new[[paste0("log1p__", v)]] <- log1p(x)
     }
@@ -612,6 +632,10 @@ engineer_features_train <- function(
       for (p in comb) {
         if (!all(p %in% names(nd))) next
         a <- nd[[p[1]]]; b <- nd[[p[2]]]
+        if (inherits(a, c("Date","POSIXct","POSIXlt"))) a <- as.numeric(a)
+        if (inherits(b, c("Date","POSIXct","POSIXlt"))) b <- as.numeric(b)
+        if (is.logical(a)) a <- as.integer(a)
+        if (is.logical(b)) b <- as.integer(b)
         comp_new[[paste0("ratio__", p[1], "__over__", p[2])]] <- .safe_ratio(a, b)
         comp_new[[paste0("diff__", p[1], "__minus__", p[2])]] <- a - b
         comp_new[[paste0("prod__", p[1], "__x__", p[2])]] <- a * b
@@ -714,6 +738,17 @@ engineer_features_train <- function(
           nd_cat[[v]] <- as.numeric(x)
         } else if (is.logical(x)) {
           nd_cat[[v]] <- as.integer(x)
+        }
+      }
+      # Ensure strict data.frame for catboost pool
+      if (!is.data.frame(nd_cat)) nd_cat <- as.data.frame(nd_cat, check.names = FALSE)
+      # Guard: convert residual character to factors and list to character
+      for (v in names(nd_cat)) {
+        if (is.list(nd_cat[[v]])) nd_cat[[v]] <- as.character(nd_cat[[v]])
+        if (is.character(nd_cat[[v]])) {
+          x <- nd_cat[[v]]
+          x[is.na(x) | x == ""] <- "MISSING"
+          nd_cat[[v]] <- factor(x, levels = if (v %in% names(df) && is.factor(df[[v]])) levels(df[[v]]) else NULL)
         }
       }
       np <- catboost::catboost.load_pool(data = nd_cat)
