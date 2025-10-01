@@ -337,7 +337,7 @@ dt_final$oot <- dt_oot_enriched %>% dplyr::select(any_of(c(final_model_features,
 dt_enriched_woe <- woebin_ply(dt_train_enriched %>% dplyr::select(!any_of(c(id))),bins = bins)
 dt_enriched_describe <- scorecard::describe(dt_enriched_woe %>% dplyr::select(!any_of(c(loan_date, id, target))))
 dt_enriched_iv <- scorecard::iv(dt = dt_enriched_woe %>% dplyr::select(!any_of(c(loan_date, id))) , y = c(target))
-dt_enriched_psi <- calculate_psi(df = dt_enriched_woe, target_col = target, date_col = loan_date)
+dt_enriched_psi <- calculate_psi(df = dt_enriched_woe, target_col = target, date_col = loan_date,n_intervals = 10, interval_method = 'quantile')
 
 dt_enriched_info <- dt_enriched_describe %>% left_join(dt_enriched_iv) %>% left_join(dt_enriched_psi)
 drop_info_df_final <- drop_info_df

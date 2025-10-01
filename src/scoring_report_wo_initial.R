@@ -575,8 +575,8 @@ export_default_model_report_excel <- function(
   
   # 1.3 — OOT
   openxlsx::addWorksheet(wb, "1.3_OOT")
-  openxlsx::writeData(wb, "1.3_OOT", psi_overall, startRow = 5, startCol = 1)
-  openxlsx::writeData(wb, "1.3_OOT", psi_features_df, startRow = 10, startCol = 1)
+  openxlsx::writeData(wb, "1.3_OOT", psi_overall, startRow = 1, startCol = 1)
+  openxlsx::writeData(wb, "1.3_OOT", psi_features_df, startRow = 5, startCol = 1)
   
   # 2.2 — объединённый IV/Gini/Вклад
   openxlsx::addWorksheet(wb, "2.2_IV_Gini_Вклад")
@@ -620,14 +620,14 @@ export_default_model_report_excel <- function(
   openxlsx::addWorksheet(wb, "3_Качество_Модели")
   openxlsx::writeData(wb, "3_Качество_Модели", metrics_overall)
   openxlsx::insertImage(wb, "3_Качество_Модели", save_plot_png(roc_plot),       startRow = 10, startCol = 1, width = 8, height = 6, units = "in")
-  openxlsx::insertImage(wb, "3_Качество_Модели", save_plot_png(gini_time_plot), startRow = 28, startCol = 1, width = 8, height = 5, units = "in")
-  openxlsx::insertImage(wb, "3_Качество_Модели", save_plot_png(lift_time_plot), startRow = 45, startCol = 1, width = 8, height = 5, units = "in")
+  openxlsx::insertImage(wb, "3_Качество_Модели", save_plot_png(gini_time_plot), startRow = 40, startCol = 1, width = 8, height = 5, units = "in")
+  openxlsx::insertImage(wb, "3_Качество_Модели", save_plot_png(lift_time_plot), startRow = 65, startCol = 1, width = 8, height = 5, units = "in")
   
   # 4.1 — Score распределения
   openxlsx::addWorksheet(wb, "4.1_Score_распределения")
   openxlsx::writeData(wb, "4.1_Score_распределения", score_deciles)
   openxlsx::insertImage(wb, "4.1_Score_распределения", save_plot_png(score_hist),           startRow = 15, startCol = 1, width = 8, height = 5, units = "in")
-  openxlsx::insertImage(wb, "4.1_Score_распределения", save_plot_png(drate_by_decile_plot), startRow = 35, startCol = 1, width = 8, height = 5, units = "in")
+  openxlsx::insertImage(wb, "4.1_Score_распределения", save_plot_png(drate_by_decile_plot), startRow = 40, startCol = 1, width = 8, height = 5, units = "in")
   
 
   dir.create(dirname(excel_path), recursive = TRUE, showWarnings = FALSE)
