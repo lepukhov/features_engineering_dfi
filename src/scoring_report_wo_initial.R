@@ -575,7 +575,6 @@ export_default_model_report_excel <- function(
   
   # 1.3 — OOT
   openxlsx::addWorksheet(wb, "1.3_OOT")
-  openxlsx::writeData(wb, "1.3_OOT", data.frame(обоснование_OOT = oot_reason, stringsAsFactors = FALSE))
   openxlsx::writeData(wb, "1.3_OOT", psi_overall, startRow = 5, startCol = 1)
   openxlsx::writeData(wb, "1.3_OOT", psi_features_df, startRow = 10, startCol = 1)
   

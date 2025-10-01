@@ -210,7 +210,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_var_filter, Reaso
 
 m1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = dt_woe_list$train)
 
-cat('Stage 1 \n', 'Features:', length(names(m1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1, dt_woe_list$train)),
+cat('Stage 1 - Done\n', 'Features:', length(names(m1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1, dt_woe_list$train)),
 gini(dt_woe_list$test[[target]],predict(m1, dt_woe_list$test)), '\n')
 
 vars <- dt_woe_list$train %>% dplyr::select(where(is.numeric))
@@ -225,7 +225,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_corr, Reason = 'C
 }
 
 m1_1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = vars)
-cat('Stage 2 \n', 'Features:', length(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
+cat('Stage 2 - Done\n', 'Features:', length(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m1_1, dt_woe_list$test)), '\n')
 
 vifs <- vif(m1_1)
@@ -233,7 +233,7 @@ vifs <- tibble(name = names(vifs), gvif = vifs)
 vifs <- vifs %>% dplyr::filter( gvif > gvif_cutoff) %>% dplyr::select(name)
 vars <- vars %>% dplyr::select(!any_of(vifs$name))
 m1_1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = vars)
-cat('Stage 3 \n', 'Features:', length(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
+cat('Stage 3 - Done\n', 'Features:', length(names(m1_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m1_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m1_1, dt_woe_list$test)), '\n')
 
 selected_vifs <- coef(m1_1)
@@ -281,7 +281,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_lasso, Reason = '
 }
 
 m2_1 = glm(as.formula(paste(target,' ~ .')), family = binomial(), data = dt_woe_list$train)
-cat('Stage 4 \n', 'Features:', length(names(m2_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m2_1, dt_woe_list$train)),
+cat('Stage 4 - Done\n', 'Features:', length(names(m2_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m2_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m2_1, dt_woe_list$test)), '\n')
 
 choose_B <- function(n_vars) {
@@ -320,7 +320,7 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_boot, Reason = 'B
 }
 
 m3_1 = glm(as.formula(boot2_1$OrigStepAIC$formula), family = binomial(), data = dt_woe_list$train)
-cat('Stage 5 \n', 'Features:', length(names(m3_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m3_1, dt_woe_list$train)),
+cat('Stage 5 - Done\n', 'Features:', length(names(m3_1$model)), 'GINI:', gini(dt_woe_list$train[[target]],predict(m3_1, dt_woe_list$train)),
     gini(dt_woe_list$test[[target]],predict(m3_1, dt_woe_list$test)), '\n')
 
 
@@ -397,6 +397,72 @@ try({
   readr::write_csv(scored_all, file.path(project_directory, paste0("initial_scored_", format(Sys.time(), "%d%m%Y%H%M%S"), ".csv")))
 }, silent = TRUE)
 
-cat('Работа с ', INPUT_FACTORS_FILE, ' завершена в ',  format(Sys.time(), "%d%m%Y%H%M%S"))
 
+# Export scored initial sample (train/test/oot flag per loan)
+try({
+  # Predictor names expected by the model (WOE columns)
+  predictor_names_woe <- setdiff(names(stats::coef(final_model)), "(Intercept)")
+  feature_base <- sub("_woe$", "", predictor_names_woe)
+  feature_base <- intersect(feature_base, names(final_bins))
+  # Scoring helper
+  score_split <- function(df_raw, split_name) {
+    keep_cols <- unique(c(feature_base, id, loan_date, target))
+    keep_cols <- intersect(keep_cols, names(df_raw))
+    base <- df_raw[, keep_cols, drop = FALSE]
+    # Apply WOE to features used by the final model
+    w_input <- base[, intersect(feature_base, names(base)), drop = FALSE]
+    wdf <- scorecard::woebin_ply(w_input, bins = final_bins)
+    # Assemble newdata with exact predictor columns expected by the model
+    newdata <- wdf[, intersect(predictor_names_woe, names(wdf)), drop = FALSE]
+    missing_cols <- setdiff(predictor_names_woe, names(newdata))
+    for (mc in missing_cols) newdata[[mc]] <- 0
+    newdata <- newdata[, predictor_names_woe, drop = FALSE]
+    pd <- tryCatch(stats::predict(final_model, newdata = newdata, type = "response"), error = function(e) rep(NA_real_, nrow(wdf)))
+    out <- base
+    out[["__pd__"]] <- pd
+    out[["__split__"]] <- split_name
+    out
+  }
+  scored_train <- score_split(dt_list$train, "train")
+  scored_test  <- score_split(dt_list$test,  "test")
+  scored_oot   <- score_split(dt_oot,       "oot")
+  scored_all <- dplyr::bind_rows(scored_train, scored_test, scored_oot)
+  # Order columns: id, date, target, split, pd, then features
+  ord_cols <- c(intersect(id, names(scored_all)), intersect(loan_date, names(scored_all)), intersect(target, names(scored_all)), "__split__", "__pd__")
+  other_cols <- setdiff(names(scored_all), ord_cols)
+  scored_all <- scored_all[, c(ord_cols, other_cols), drop = FALSE]
+  readr::write_csv(scored_all, file.path(project_directory, paste0("initial_scored_", format(Sys.time(), "%d%m%Y%H%M%S"), ".csv")))
+}, silent = TRUE)
 
+# Export feature-engineering models used in engineer_features_train
+try({
+  out_dir <- file.path(project_directory, paste0("fe_models_", format(Sys.time(), "%Y%m%d%H%M%S")))
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  # Save entire models list
+  if (!is.null(fe$models)) saveRDS(fe$models, file = file.path(out_dir, "fe_models_list.rds"))
+  # rpart
+  if (!is.null(fe$models$rpart)) saveRDS(fe$models$rpart, file.path(out_dir, "rpart_model.rds"))
+  # ranger
+  if (!is.null(fe$models$rf)) {
+    saveRDS(fe$models$rf, file.path(out_dir, "ranger_model.rds"))
+    if (!is.null(fe$meta$rf_num_medians)) saveRDS(fe$meta$rf_num_medians, file.path(out_dir, "ranger_num_medians.rds"))
+  }
+  # xgboost
+  if (!is.null(fe$models$xgb)) {
+    saveRDS(fe$models$xgb, file.path(out_dir, "xgb_model.rds"))
+    if (requireNamespace("xgboost", quietly = TRUE)) {
+      try(xgboost::xgb.save(fe$models$xgb, fname = file.path(out_dir, "xgb_model.bin")), silent = TRUE)
+    }
+    if (!is.null(fe$meta$xgb_terms)) saveRDS(fe$meta$xgb_terms, file.path(out_dir, "xgb_terms.rds"))
+    if (!is.null(fe$meta$xgb_leaf_meta)) saveRDS(fe$meta$xgb_leaf_meta, file.path(out_dir, "xgb_leaf_meta.rds"))
+  }
+  # catboost
+  if (!is.null(fe$models$cat)) {
+    saveRDS(fe$models$cat, file.path(out_dir, "catboost_model.rds"))
+    if (requireNamespace("catboost", quietly = TRUE)) {
+      try(catboost::catboost.save_model(fe$models$cat, model_path = file.path(out_dir, "catboost_model.cbm")), silent = TRUE)
+    }
+  }
+}, silent = TRUE)
+
+cat('Работа с', INPUT_FACTORS_FILE, 'завершена в',  format(Sys.time(), "%Y-%m-%d %H:%M:%S"))

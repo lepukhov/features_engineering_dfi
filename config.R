@@ -27,7 +27,7 @@ use_ranger = TRUE #использовать decision tree или нет
 use_rpart = TRUE #использовать random forest или нет
 use_xgboost = TRUE #использовать xgboost или нет
 xgb_add_leaf_features = TRUE # использовать листья xgboost в качестве one-hot переменной или нет
-xgb_leaf_use_first_n_trees = 50 # количество первых деревьев
+xgb_leaf_use_first_n_trees = 20 # количество первых деревьев
 n_folds = 5 #количество фолдов
 fe_nfolds = 5
 
