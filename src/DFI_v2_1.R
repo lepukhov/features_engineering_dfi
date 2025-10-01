@@ -176,15 +176,15 @@ fe <- engineer_features_train(dt_list$train,
 #dt_train_enriched <- dt_list$train
 dt_train_enriched <- fe$train_features
 dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))
-dt_train_enriched <- dt_list$train %>% left_join(dt_train_enriched, join_by(.data[[id]]))
+dt_train_enriched <- dt_list$train %>% dplyr::left_join(dt_train_enriched,  by = id)
 
 #dt_test_enriched <- dt_list$test
 dt_test_enriched <- fe$predict_new(dt_list$test)
-dt_test_enriched <- dt_list$test %>% left_join(dt_test_enriched, join_by(.data[[id]]))
+dt_test_enriched <- dt_list$test %>% left_join(dt_test_enriched,  by = id)
 
 #dt_oot_enriched <- dt_oot
 dt_oot_enriched <- fe$predict_new(dt_oot)
-dt_oot_enriched <- dt_oot %>% left_join(dt_oot_enriched, join_by(.data[[id]]))
+dt_oot_enriched <- dt_oot %>% left_join(dt_oot_enriched,  by = id)
 
 if (VERBOSE) glimpse(dt_oot_enriched)
 
