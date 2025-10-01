@@ -18,19 +18,19 @@ ensure_packages <- function(pkgs) {
 }
 
 #catboost installation
-installed <- rownames(installed.packages())
-to_install <- setdiff('catboost', installed)
-if (length(to_install) > 0) {
-    install.packages(c("devtools", "Rtools"))
-    devtools::install_git("https://github.com/catboost/catboost", subdir = "catboost/R-package")
-    library(catboost)
-  }
+#installed <- rownames(installed.packages())
+#to_install <- setdiff('catboost', installed)
+#if (length(to_install) > 0) {
+#    install.packages(c("devtools", "Rtools"))
+#    devtools::install_git("https://github.com/catboost/catboost", subdir = "catboost/R-package")
+#    library(catboost)
+#  }
 
 
 required_packages <- c(
   "readr","lubridate","dplyr","data.table","ggplot2","stringr","rsample",
   "scorecard","ModelMetrics","modelsummary","tidypredict","precrec","caret","tornado",
-  "tidyverse","bootStepAIC","readxl","glmnet","openxlsx","doParallel","foreach","car","httr2","jsonlite", "catboost"
+  "tidyverse","bootStepAIC","readxl","glmnet","openxlsx","doParallel","foreach","car","httr2","jsonlite"
 )
 
 ensure_packages(required_packages)
