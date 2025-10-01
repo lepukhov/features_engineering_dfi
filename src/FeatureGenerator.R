@@ -751,12 +751,41 @@ engineer_features_train <- function(
           nd_cat[[v]] <- factor(x, levels = if (v %in% names(df) && is.factor(df[[v]])) levels(df[[v]]) else NULL)
         }
       }
+      # Add any missing training columns and enforce exact column order
+      train_cols <- names(df)
+      miss_cols <- setdiff(train_cols, names(nd_cat))
+      if (length(miss_cols)) {
+        for (mc in miss_cols) {
+          if (mc %in% cat_vars && mc %in% names(df) && is.factor(df[[mc]])) {
+            nd_cat[[mc]] <- factor(rep("MISSING", nrow(nd_cat)), levels = levels(df[[mc]]))
+          } else {
+            nd_cat[[mc]] <- NA_real_
+          }
+        }
+      }
+      # Drop extras not in training and reorder
+      keep_cols <- intersect(train_cols, names(nd_cat))
+      nd_cat <- nd_cat[, keep_cols, drop = FALSE]
+      # Reorder to training order
+      nd_cat <- nd_cat[, train_cols, drop = FALSE]
+      colnames(nd_cat) <- train_cols
+      # Create pool without explicit feature_names to avoid name mismatch
       np <- catboost::catboost.load_pool(data = nd_cat)
       pp <- catboost::catboost.predict(cat_model_full, np, prediction_type = "Probability")
       new_frames <- c(new_frames, list(data.frame(oof_cat_prob = pp, check.names = FALSE)))
     }
     
     if (!length(new_frames)) stop("No features generated for new data.")
+    # Ensure all feature frames have the same row count
+    expected_rows <- nrow(nd)
+    frame_rows <- vapply(new_frames, function(x) if (!is.null(nrow(x))) nrow(x) else length(x), integer(1))
+    keep_idx <- which(frame_rows == expected_rows)
+    drop_idx <- which(frame_rows != expected_rows)
+    if (length(drop_idx)) {
+      .log("Dropping %d feature blocks with mismatched rows: %s", length(drop_idx), paste(frame_rows[drop_idx], collapse=","))
+      new_frames <- new_frames[keep_idx]
+    }
+    if (!length(new_frames)) stop("All feature blocks had mismatched row counts; aborting predict_new.")
     out_df <- do.call(cbind, new_frames)
     
     # Align to training columns excluding target

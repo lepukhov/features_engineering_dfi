@@ -31,7 +31,7 @@ required_packages <- c(
   "readr","lubridate","dplyr","data.table","ggplot2","stringr","rsample",
   "scorecard","ModelMetrics","modelsummary","tidypredict","precrec","caret","tornado",
   "tidyverse","bootStepAIC","readxl","glmnet","openxlsx","doParallel","foreach","car","httr2","jsonlite"
-)
+) 
 
 ensure_packages(required_packages)
 
