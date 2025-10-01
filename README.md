@@ -59,34 +59,39 @@ XGBoost leaf index encoding (опционально):
 На полной XGBoost‑модели извлекаются индексы листьев (predleaf=TRUE)
 
 Режимы:
-index: столбцы xgb_leaf_tNNN с номерами листьев (целые)
-onehot: one‑hot матрица листьев; уровни сохраняются в meta$xgb_leaf_meta для корректного скоринга
+- index: столбцы xgb_leaf_tNNN с номерами листьев (целые)
+- onehot: one‑hot матрица листьев; уровни сохраняются в meta$xgb_leaf_meta для корректного скоринга
 Можно ограничить число используемых деревьев (первые N)
 
 
 Как потом можно использовать результаты?
 
 Коротко: загрузите сохранённые файлы (список моделей и метаданные) и используйте их для скоринга новых данных по каждому алгоритму.
-# 1) Загрузка
+1) Загрузка
+```r
 dir <- file.path(project_directory, "fe_models_YYYYMMDDHHMMSS")  # ваша папка
 fe_models <- readRDS(file.path(dir, "fe_models_list.rds"))
 rf_medians <- try(readRDS(file.path(dir, "ranger_num_medians.rds")), silent = TRUE)
 xgb_terms  <- try(readRDS(file.path(dir, "xgb_terms.rds")), silent = TRUE)
 xgb_leaf_meta <- try(readRDS(file.path(dir, "xgb_leaf_meta.rds")), silent = TRUE)
-
-# Доступ к моделям
+```
+2) Доступ к моделям
+```r
 #rpart
 m_rpart <- fe_models$rpart
 m_rf    <- fe_models$rf
 m_xgb   <- fe_models$xgb
 m_cat   <- fe_models$cat
+```
 
-#Скоринг новых сырых данных nd (те же названия/типы столбцов, что и при обучении):
+3) Скоринг новых сырых данных nd (те же названия/типы столбцов, что и при обучении):
+```r
 nd_rp <- nd
 nd_rp[[target]] <- factor(0, levels = c(0,1))
 p_rpart <- predict(m_rpart, newdata = nd_rp, type = "prob")[,2]
-
-#ranger (импутация медиа́нами из train)
+```
+ranger (импутация медиа́нами из train)
+```r
 nd_rf <- nd
 if (inherits(rf_medians, "numeric")) {
   for (v in names(rf_medians)) if (v %in% names(nd_rf)) {
@@ -95,16 +100,20 @@ if (inherits(rf_medians, "numeric")) {
 }
 nd_rf[[target]] <- factor(0, levels = c(0,1))
 p_rf <- predict(m_rf, data = nd_rf)$predictions[,2]
+```
 
-#xgboost (тот же terms, что в train)
+xgboost (тот же terms, что в train)
+```r
 stopifnot(!inherits(xgb_terms, "try-error"))
 mf <- model.frame(xgb_terms, data = nd, na.action = na.pass)
 X  <- model.matrix(xgb_terms, mf)
 d  <- xgboost::xgb.DMatrix(X, missing = NA)
 p_xgb <- predict(m_xgb, d)
-# Если нужны листовые фичи — используйте сохранённый xgb_leaf_meta для кодирования так же, как в train
+```
+Если нужны листовые фичи — используйте сохранённый xgb_leaf_meta для кодирования так же, как в train
 
-#CatBoost (важно: факторы и порядок колонок как в train)
+CatBoost (важно: факторы и порядок колонок как в train)
+```r
 nd_cat <- nd
 # приведение типов: char->factor("MISSING"), Date/POSIX->numeric, logical->integer
 for (v in names(nd_cat)) {
@@ -117,5 +126,10 @@ for (v in names(nd_cat)) {
 nd_cat <- nd_cat[, names(nd_cat), drop = FALSE]
 pool <- catboost::catboost.load_pool(data = as.data.frame(nd_cat), feature_names = colnames(nd_cat))
 p_cat <- catboost::catboost.predict(m_cat, pool, prediction_type = "Probability")
+```
 
-#Если планируете полностью воспроизводимый скоринг фич, сохраняйте не только модели/мету по отдельности, а сразу весь объект fe целиком: saveRDS(fe, "fe_object.rds"). Тогда можно будет сделать fe_loaded <- readRDS(...); fe_loaded$predict_new(new_df).
+4) Если планируете полностью воспроизводимый скоринг фич, сохраняйте не только модели/мету по отдельности, а сразу весь объект fe целиком: saveRDS(fe, "fe_object.rds"). Тогда можно будет сделать 
+```r
+fe_loaded <- readRDS(...);
+fe_loaded$predict_new(new_df).
+```
