@@ -9,14 +9,6 @@ project_directory = OUTPUT_DIR
 INPUT_FACTORS_FILE <- 'factors_first_portion.csv'
 SKIP_FACTORS <- c('true_caller_city', 'whatsapp_about')
 
-#только для v2
-JUICY_FILE <- 'Juicy.xlsx'
-RESULT_FILE <- 'Result.xlsx'
-# Словари для LLM-атрибутов (опционально, если есть)
-DICT_IPOWNER_FILE <- 'dict_ipOwner_enrichment.csv'
-DICT_IPREGION_FILE <- 'dict_ipRegionName_enrichment.csv'
-DICT_IPCITY_FILE <- 'dict_ipCity_enrichment.csv'
-
 # Рантайм настройки
 VERBOSE <- TRUE
 OOT_CUTOFF_DATE <- as.Date('2025-10-01') #значения старше этой даты будут выкидываться
@@ -26,7 +18,7 @@ target = 'DPD30_factor' #поле где содержится целевая п�
 id = 'loan_id' #поле в котором содержится loan_id
 loan_date = 'issuedate' #поле в котором содержится дата 
 ratio_train = 0.7 #проценты обучающей выборки (за искл. oot)
-oot_period_months = 1 #количество месяцевы, которые попадют в out-of-time
+OOT_SHARE = 0.1 #доля выборки которая уйдет на oot
 
 #Feature Engeneering Settings
 top_num_for_pairs = 5 #количество топ-переменных которые будут попарно взаимодействия, выбираются по спирману

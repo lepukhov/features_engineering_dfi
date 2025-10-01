@@ -40,12 +40,12 @@ if (is.character(all_loans[[loan_date]])) {
   all_loans[[loan_date]] <- parse_date(all_loans[[loan_date]], '%m/%d/%Y')
 }
 
-N_CORES <- max(1L, parallel::detectCores(logical = TRUE) - 1L)
-cl <- NULL
-if (N_CORES > 1L) {
-  cl <- parallel::makeCluster(N_CORES)
-  doParallel::registerDoParallel(cl)
-}
+#N_CORES <- max(1L, parallel::detectCores(logical = TRUE) - 1L)
+#cl <- NULL
+#if (N_CORES > 1L) {
+#  cl <- parallel::makeCluster(N_CORES)
+#  doParallel::registerDoParallel(cl)
+#}
 
 if (!is.null(cl)) on.exit({ try(parallel::stopCluster(cl), silent = TRUE) }, add = TRUE)
 
@@ -78,9 +78,24 @@ coerce_numeric_cols <- function(df) {
 }
 dt <- coerce_numeric_cols(dt)
 
-cutoff_dt <- max(dt[[loan_date]]) - months(oot_period_months)
-dt_initial <- dt %>% filter(.data[[loan_date]] <= cutoff_dt)
-dt_oot <- dt %>% filter(.data[[loan_date]] > cutoff_dt)
+#cutoff_dt <- max(dt[[loan_date]]) - months(oot_period_months)
+#dt_initial <- dt %>% filter(.data[[loan_date]] <= cutoff_dt)
+#dt_oot <- dt %>% filter(.data[[loan_date]] > cutoff_dt)
+
+# Формирование OOT как последних по дате наблюдений в размере заданной доли выборки
+oot_share <- get0('oot_share', ifnotfound = get0('OOT_SHARE', ifnotfound = 0.2))
+if (isTRUE(oot_share > 1)) oot_share <- oot_share / 100
+oot_share <- as.numeric(oot_share)
+oot_share <- ifelse(is.finite(oot_share) && oot_share > 0 && oot_share < 1, oot_share, 0.2)
+
+dt_sorted <- dt %>% arrange(desc(.data[[loan_date]]))
+oot_n <- max(1L, floor(nrow(dt_sorted) * oot_share))
+dt_oot <- dt_sorted %>% dplyr::slice(1:oot_n)
+if (oot_n < nrow(dt_sorted)) {
+  dt_initial <- dt_sorted %>% dplyr::slice((oot_n + 1):nrow(dt_sorted))
+} else {
+  dt_initial <- dt_sorted[0, , drop = FALSE]
+}
 
 dt_list = split_df(dt_initial, y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
 
@@ -236,6 +251,8 @@ choose_B <- function(n_vars) {
   }
 }
 
+cat('Запускается bootstraping. Интераций:', choose_B(ncol(dt_woe_list$train)-1))
+
 boot2_1 <- boot.stepAIC(
   m2_1,
   dt_woe_list$train,
@@ -298,8 +315,10 @@ export_default_model_report_excel(
   overwrite = TRUE
 )
 
-if (!is.null(cl)) {
-  parallel::stopCluster(cl)
-}
+#if (!is.null(cl)) {
+#  parallel::stopCluster(cl)
+#}
+
+cat('Работа с ', INPUT_FACTORS_FILE, ' завершена в ',  format(Sys.time(), "%d%m%Y%H%M%S"))
 
 

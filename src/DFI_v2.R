@@ -29,11 +29,19 @@ source('config.R')
 
 # Runtime options
 VERBOSE <- get0('VERBOSE', ifnotfound = FALSE)
+#только для v2
+JUICY_FILE <- 'Juicy.xlsx'
+RESULT_FILE <- 'Result.xlsx'
+# Словари для LLM-атрибутов (опционально, если есть)
+DICT_IPOWNER_FILE <- 'dict_ipOwner_enrichment.csv'
+DICT_IPREGION_FILE <- 'dict_ipRegionName_enrichment.csv'
+DICT_IPCITY_FILE <- 'dict_ipCity_enrichment.csv'
 
 # Data paths
 factors_path <- file.path(DATA_DIR, INPUT_FACTORS_FILE)
 juicy_path <- file.path(DATA_DIR, JUICY_FILE)
 result_path <- file.path(DATA_DIR, RESULT_FILE)
+
 
 all_loans <- readr::read_delim(factors_path, quote = "\"", delim =';', locale = readr::locale(encoding = "Windows-1251"), show_col_types = FALSE, progress = FALSE)
 juicy <- openxlsx::read.xlsx(juicy_path)
@@ -64,7 +72,7 @@ all_loans_a$total_score <- as.numeric(all_loans_a$total_score)
 all_loans_a <- all_loans_a %>% filter(!is.na(DPD30_factor))
 all_loans_a$DPD30_factor <- as.double(all_loans_a$DPD30_factor)
 all_loans_a$total_score <- as.numeric(all_loans_a$total_score)
-cutoff_all_loans <- max(all_loans_a[[loan_date]]) - months(oot_period_months)
+cutoff_all_loans <- max(all_loans_a[[loan_date]]) - months(1)
 all_loans_a_init <- all_loans_a %>% filter(issuedate < cutoff_all_loans)
 all_loans_a_oot <- all_loans_a %>%filter(issuedate >= cutoff_all_loans)
 
@@ -134,10 +142,28 @@ coerce_numeric_cols <- function(df) {
 }
 dt <- coerce_numeric_cols(dt)
 
-cutoff_dt <- max(dt[[loan_date]]) - months(oot_period_months)
-dt_initial <- dt %>% filter(issuedate < cutoff_dt)
-dt_oot <- dt %>% filter(issuedate >= cutoff_dt)
+#cutoff_dt <- max(dt[[loan_date]]) - months(oot_period_months)
+#dt_initial <- dt %>% filter(issuedate < cutoff_dt)
+#dt_oot <- dt %>% filter(issuedate >= cutoff_dt)
+
+
+# Формирование OOT как последних по дате наблюдений в размере заданной доли выборки
+oot_share <- get0('oot_share', ifnotfound = get0('OOT_SHARE', ifnotfound = 0.2))
+if (isTRUE(oot_share > 1)) oot_share <- oot_share / 100
+oot_share <- as.numeric(oot_share)
+oot_share <- ifelse(is.finite(oot_share) && oot_share > 0 && oot_share < 1, oot_share, 0.2)
+
+dt_sorted <- dt %>% arrange(desc(.data[[loan_date]]))
+oot_n <- max(1L, floor(nrow(dt_sorted) * oot_share))
+dt_oot <- dt_sorted %>% dplyr::slice(1:oot_n)
+if (oot_n < nrow(dt_sorted)) {
+  dt_initial <- dt_sorted %>% dplyr::slice((oot_n + 1):nrow(dt_sorted))
+} else {
+  dt_initial <- dt_sorted[0, , drop = FALSE]
+}
+
 dt_list = split_df(dt_initial, y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
+
 
 join_if_exists <- function(base_df, dict_path, key_col) {
   if (!file.exists(dict_path)) {
