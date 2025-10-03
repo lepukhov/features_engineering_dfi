@@ -117,9 +117,6 @@ coerce_numeric_cols <- function(df) {
 }
 dt <- coerce_numeric_cols(dt)
 
-#cutoff_dt <- max(dt[[loan_date]]) - months(oot_period_months)
-#dt_initial <- dt %>% filter(.data[[loan_date]] <= cutoff_dt)
-#dt_oot <- dt %>% filter(.data[[loan_date]] > cutoff_dt)
 
 # Формирование OOT как последних по дате наблюдений в размере заданной доли выборки
 oot_share <- get0('oot_share', ifnotfound = get0('OOT_SHARE', ifnotfound = 0.2))
@@ -138,20 +135,20 @@ if (oot_n < nrow(dt_sorted)) {
 
 dt_list = split_df(dt_initial, y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
 
-join_if_exists <- function(base_df, dict_path, key_col) {
-  if (!file.exists(dict_path)) {
-    if (VERBOSE) message("Файл словаря не найден: ", dict_path)
-    return(base_df)
-  }
-  dict <- tryCatch(readr::read_csv(dict_path, show_col_types = FALSE), error = function(e) NULL)
-  if (is.null(dict) || !key_col %in% names(dict)) {
-    if (VERBOSE) message("Словарь невалиден или не содержит столбец ", key_col, ": ", dict_path)
-    return(base_df)
-  }
-  dict[[key_col]] <- gsub(",", ".", dict[[key_col]])
-  dict[[key_col]] <- gsub("[^[:alnum:].]", "", dict[[key_col]])
-  dplyr::left_join(base_df, dict, join_by(!!as.name(key_col)))
-}
+#join_if_exists <- function(base_df, dict_path, key_col) {
+#  if (!file.exists(dict_path)) {
+#    if (VERBOSE) message("Файл словаря не найден: ", dict_path)
+#    return(base_df)
+#  }
+#  dict <- tryCatch(readr::read_csv(dict_path, show_col_types = FALSE), error = function(e) NULL)
+#  if (is.null(dict) || !key_col %in% names(dict)) {
+#    if (VERBOSE) message("Словарь невалиден или не содержит столбец ", key_col, ": ", dict_path)
+#    return(base_df)
+#  }
+#  dict[[key_col]] <- gsub(",", ".", dict[[key_col]])
+#  dict[[key_col]] <- gsub("[^[:alnum:].]", "", dict[[key_col]])
+#  dplyr::left_join(base_df, dict, join_by(!!as.name(key_col)))
+#}
 
 fe <- engineer_features_train(dt_list$train,
                               target = target,
@@ -173,7 +170,6 @@ fe <- engineer_features_train(dt_list$train,
                               cat_learning_rate_oof = cat_learning_rate_oof,
                               cat_learning_rate_full = cat_learning_rate_full)
 
-#dt_train_enriched <- dt_list$train
 dt_train_enriched <- fe$train_features
 dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))
 dt_train_enriched <- dt_list$train %>% dplyr::left_join(dt_train_enriched,  by = id)
@@ -370,10 +366,10 @@ try({
   # Scoring helper
   score_split <- function(df_raw, split_name) {
     keep_cols <- unique(c(feature_base, id, loan_date, target))
-    keep_cols <- intersect(keep_cols, names(df_raw))
-    base <- df_raw[, keep_cols, drop = FALSE]
+    keep_cols <- intersect(keep_cols, names(dt_list$train))
+    base <- df_raw %>% dplyr::select(keep_cols)
     # Apply WOE to features used by the final model
-    w_input <- base[, intersect(feature_base, names(base)), drop = FALSE]
+    w_input <- base %>% dplyr::select(intersect(feature_base, names(base)))
     wdf <- scorecard::woebin_ply(w_input, bins = final_bins)
     # Assemble newdata with exact predictor columns expected by the model
     newdata <- wdf[, intersect(predictor_names_woe, names(wdf)), drop = FALSE]
@@ -386,9 +382,9 @@ try({
     out[["__split__"]] <- split_name
     out
   }
-  scored_train <- score_split(dt_list$train, "train")
-  scored_test  <- score_split(dt_list$test,  "test")
-  scored_oot   <- score_split(dt_oot,       "oot")
+  scored_train <- score_split(dt_final$train, "train")
+  scored_test  <- score_split(dt_final$test,  "test")
+  scored_oot   <- score_split(dt_final$oot,       "oot")
   scored_all <- dplyr::bind_rows(scored_train, scored_test, scored_oot)
   # Order columns: id, date, target, split, pd, then features
   ord_cols <- c(intersect(id, names(scored_all)), intersect(loan_date, names(scored_all)), intersect(target, names(scored_all)), "__split__", "__pd__")
@@ -397,42 +393,6 @@ try({
   readr::write_csv(scored_all, file.path(project_directory, paste0("initial_scored_", format(Sys.time(), "%d%m%Y%H%M%S"), ".csv")))
 }, silent = TRUE)
 
-
-# Export scored initial sample (train/test/oot flag per loan)
-try({
-  # Predictor names expected by the model (WOE columns)
-  predictor_names_woe <- setdiff(names(stats::coef(final_model)), "(Intercept)")
-  feature_base <- sub("_woe$", "", predictor_names_woe)
-  feature_base <- intersect(feature_base, names(final_bins))
-  # Scoring helper
-  score_split <- function(df_raw, split_name) {
-    keep_cols <- unique(c(feature_base, id, loan_date, target))
-    keep_cols <- intersect(keep_cols, names(df_raw))
-    base <- df_raw[, keep_cols, drop = FALSE]
-    # Apply WOE to features used by the final model
-    w_input <- base[, intersect(feature_base, names(base)), drop = FALSE]
-    wdf <- scorecard::woebin_ply(w_input, bins = final_bins)
-    # Assemble newdata with exact predictor columns expected by the model
-    newdata <- wdf[, intersect(predictor_names_woe, names(wdf)), drop = FALSE]
-    missing_cols <- setdiff(predictor_names_woe, names(newdata))
-    for (mc in missing_cols) newdata[[mc]] <- 0
-    newdata <- newdata[, predictor_names_woe, drop = FALSE]
-    pd <- tryCatch(stats::predict(final_model, newdata = newdata, type = "response"), error = function(e) rep(NA_real_, nrow(wdf)))
-    out <- base
-    out[["__pd__"]] <- pd
-    out[["__split__"]] <- split_name
-    out
-  }
-  scored_train <- score_split(dt_list$train, "train")
-  scored_test  <- score_split(dt_list$test,  "test")
-  scored_oot   <- score_split(dt_oot,       "oot")
-  scored_all <- dplyr::bind_rows(scored_train, scored_test, scored_oot)
-  # Order columns: id, date, target, split, pd, then features
-  ord_cols <- c(intersect(id, names(scored_all)), intersect(loan_date, names(scored_all)), intersect(target, names(scored_all)), "__split__", "__pd__")
-  other_cols <- setdiff(names(scored_all), ord_cols)
-  scored_all <- scored_all[, c(ord_cols, other_cols), drop = FALSE]
-  readr::write_csv(scored_all, file.path(project_directory, paste0("initial_scored_", format(Sys.time(), "%d%m%Y%H%M%S"), ".csv")))
-}, silent = TRUE)
 
 # Export feature-engineering models used in engineer_features_train
 try({
