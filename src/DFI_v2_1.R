@@ -326,8 +326,7 @@ final_model <- m3_1
 final_model_features <-  sub("_woe$", "", names(m3_1$model))
 final_bins <- bins[names(bins) %in% final_model_features]
 
-dt_initial <- dt_train_enriched
-dt_final <- split_df(dt_train_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date))), y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
+dt_final <- split_df(dt_initial %>% dplyr::select(any_of(c(final_model_features, target, loan_date))), y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
 dt_final$oot <- dt_oot_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date)))
 
 dt_enriched_woe <- woebin_ply(dt_train_enriched %>% dplyr::select(!any_of(c(id))),bins = bins)
@@ -366,7 +365,7 @@ try({
   # Scoring helper
   score_split <- function(df_raw, split_name) {
     keep_cols <- unique(c(feature_base, id, loan_date, target))
-    keep_cols <- intersect(keep_cols, names(dt_list$train))
+    keep_cols <- intersect(keep_cols, names(df_raw))
     base <- df_raw %>% dplyr::select(keep_cols)
     # Apply WOE to features used by the final model
     w_input <- base %>% dplyr::select(intersect(feature_base, names(base)))
