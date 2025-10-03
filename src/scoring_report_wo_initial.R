@@ -448,7 +448,23 @@ export_default_model_report_excel <- function(
       woe_table_df <- data.table::rbindlist(list(woe_table_df, intercept_df), fill = TRUE)
     }
   }
-  
+  # Добавим estimate для всех переменных модели
+  est_df <- tryCatch({
+    cf <- stats::coef(model)
+    data.frame(variable = sub("_woe$", "", names(cf)), estimate = unname(cf), stringsAsFactors = FALSE)
+  }, error = function(e) data.frame(variable = character(), estimate = numeric(), stringsAsFactors = FALSE))
+  if (nrow(est_df)) {
+    # Без интерсепта
+    est_df <- est_df[est_df$variable != "(Intercept)", , drop = FALSE]
+    new_est <- est_df$estimate[match(woe_table_df$variable, est_df$variable)]
+    if ("estimate" %in% names(woe_table_df)) {
+      na_pos <- is.na(woe_table_df$estimate)
+      woe_table_df$estimate[na_pos] <- new_est[na_pos]
+    } else {
+      woe_table_df$estimate <- new_est
+    }
+  }
+
   woe_plots <- tryCatch(scorecard::woebin_plot(bins), error = function(e) NULL)
   
   # Корреляции (WOE, Train)
