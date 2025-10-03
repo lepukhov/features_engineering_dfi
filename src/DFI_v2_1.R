@@ -326,8 +326,10 @@ final_model <- m3_1
 final_model_features <-  sub("_woe$", "", names(m3_1$model))
 final_bins <- bins[names(bins) %in% final_model_features]
 
-dt_final <- split_df(dt_initial %>% dplyr::select(any_of(c(final_model_features, target, loan_date))), y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
-dt_final$oot <- dt_oot_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date)))
+dt_initial_enriched <- fe$predict_new(dt_initial)
+dt_initial_enriched <- dt_initial %>% left_join(dt_initial_enriched,  by = id)
+dt_final <- split_df(dt_initial_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date, id))), y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
+dt_final$oot <- dt_oot_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date, id)))
 
 dt_enriched_woe <- woebin_ply(dt_train_enriched %>% dplyr::select(!any_of(c(id))),bins = bins)
 dt_enriched_describe <- scorecard::describe(dt_enriched_woe %>% dplyr::select(!any_of(c(loan_date, id, target))))
@@ -364,6 +366,7 @@ try({
   feature_base <- intersect(feature_base, names(final_bins))
   # Scoring helper
   score_split <- function(df_raw, split_name) {
+#    df_raw <- dt_final$train
     keep_cols <- unique(c(feature_base, id, loan_date, target))
     keep_cols <- intersect(keep_cols, names(df_raw))
     base <- df_raw %>% dplyr::select(keep_cols)
@@ -371,10 +374,10 @@ try({
     w_input <- base %>% dplyr::select(intersect(feature_base, names(base)))
     wdf <- scorecard::woebin_ply(w_input, bins = final_bins)
     # Assemble newdata with exact predictor columns expected by the model
-    newdata <- wdf[, intersect(predictor_names_woe, names(wdf)), drop = FALSE]
+    newdata <- wdf %>% dplyr::select(intersect(predictor_names_woe, names(wdf)))
     missing_cols <- setdiff(predictor_names_woe, names(newdata))
     for (mc in missing_cols) newdata[[mc]] <- 0
-    newdata <- newdata[, predictor_names_woe, drop = FALSE]
+    newdata <- newdata %>% dplyr::select(predictor_names_woe)
     pd <- tryCatch(stats::predict(final_model, newdata = newdata, type = "response"), error = function(e) rep(NA_real_, nrow(wdf)))
     out <- base
     out[["__pd__"]] <- pd
@@ -388,7 +391,7 @@ try({
   # Order columns: id, date, target, split, pd, then features
   ord_cols <- c(intersect(id, names(scored_all)), intersect(loan_date, names(scored_all)), intersect(target, names(scored_all)), "__split__", "__pd__")
   other_cols <- setdiff(names(scored_all), ord_cols)
-  scored_all <- scored_all[, c(ord_cols, other_cols), drop = FALSE]
+  scored_all <- scored_all %>% dplyr::select(c(ord_cols, other_cols))
   readr::write_csv(scored_all, file.path(project_directory, paste0("initial_scored_", format(Sys.time(), "%d%m%Y%H%M%S"), ".csv")))
 }, silent = TRUE)
 
