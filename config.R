@@ -39,6 +39,7 @@ fe_nfolds = 5
 #комбинирование переменных
 top_num_for_combos = 20
 max_num_woe_combos = 200
+woe_combo_exclude_vars = NULL
 
 #гиперпараметры для catboost
 cat_loss_function = "AUC"

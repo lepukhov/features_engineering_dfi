@@ -201,8 +201,9 @@ dt_woe_list = lapply(dt_list, function(x) woebin_ply(x, bins))
 woe_combo_blueprint <- try(build_woe_cross_features_blueprint(
   train_woe_df = dt_woe_list$train,
   target_col   = target,
-  max_base     = get0('top_num_for_pairs', ifnotfound = 20),
-  max_combos   = get0('max_num_woe_combos', ifnotfound = 200)
+  max_base     = get0('top_num_for_combos', ifnotfound = 20),
+  max_combos   = get0('max_num_woe_combos', ifnotfound = 200),
+  exclude_vars = get0('woe_combo_exclude_vars', ifnotfound = character(0))
 ), silent = TRUE)
 if (inherits(woe_combo_blueprint, 'try-error')) woe_combo_blueprint <- list(combos = data.frame())
 

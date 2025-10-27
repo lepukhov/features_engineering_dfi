@@ -910,7 +910,8 @@ apply_woe_combo_features <- function(df, blueprint) {
 build_woe_cross_features_blueprint <- function(train_woe_df,
                                                target_col,
                                                max_base = get0("top_num_for_pairs", ifnotfound = 20),
-                                               max_combos = get0("max_num_woe_combos", ifnotfound = 200)) {
+                                               max_combos = get0("max_num_woe_combos", ifnotfound = 200),
+                                               exclude_vars = get0("woe_combo_exclude_vars", ifnotfound = character(0))) {
   bp <- make_woe_combo_features_blueprint(
     train_woe_df = train_woe_df,
     target_col   = target_col,
@@ -925,6 +926,11 @@ build_woe_cross_features_blueprint <- function(train_woe_df,
   combos$var1_raw <- sub("_woe$", "", combos$var1)
   combos$var2_raw <- sub("_woe$", "", combos$var2)
   combos$new_name <- paste0(combos$var1_raw, "__VS__", combos$var2_raw)
+  # Exclude pairs containing any variables from exclude list (raw names)
+  if (length(exclude_vars)) {
+    combos <- combos[!(combos$var1_raw %in% exclude_vars | combos$var2_raw %in% exclude_vars), , drop = FALSE]
+  }
+  if (!NROW(combos)) return(list(woe_vars_required = character(0), combos = data.frame()))
   list(
     woe_vars_required = unique(c(combos$var1, combos$var2)),
     combos = combos[, c("var1_raw", "var2_raw", "new_name"), drop = FALSE]
