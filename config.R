@@ -36,6 +36,10 @@ xgb_leaf_use_first_n_trees = 20 # количество первых деревь
 n_folds = 5 #количество фолдов
 fe_nfolds = 5
 
+#комбинирование переменных
+top_num_for_combos = 20
+max_num_woe_combos = 200
+
 #гиперпараметры для catboost
 cat_loss_function = "AUC"
 cat_depth = 4L

@@ -197,6 +197,29 @@ drop_info_df <- data.frame(
 bins = woebin(dt_train_enriched, y=c(target), check_cate_num= FALSE, ignore_const_cols = FALSE, ignore_datetime_cols = TRUE, method = 'tree', stop_limit = stop_limit, count_distr_limit = count_distr_limit, no_cores = NULL, bin_num_limit = bin_num_limit)
 dt_woe_list = lapply(dt_list, function(x) woebin_ply(x, bins))
 
+# Build blueprint for cross-bin categorical features from WOE-binned train
+woe_combo_blueprint <- try(build_woe_cross_features_blueprint(
+  train_woe_df = dt_woe_list$train,
+  target_col   = target,
+  max_base     = get0('top_num_for_pairs', ifnotfound = 20),
+  max_combos   = get0('max_num_woe_combos', ifnotfound = 200)
+), silent = TRUE)
+if (inherits(woe_combo_blueprint, 'try-error')) woe_combo_blueprint <- list(combos = data.frame())
+
+# Add combined categorical features to raw enriched datasets
+dt_train_enriched <- add_woe_cross_features(dt_train_enriched, bins, woe_combo_blueprint)
+dt_test_enriched  <- add_woe_cross_features(dt_test_enriched,  bins, woe_combo_blueprint)
+dt_oot_enriched   <- add_woe_cross_features(dt_oot_enriched,   bins, woe_combo_blueprint)
+
+# Update lists after adding combined features
+dt_list$train <- dt_train_enriched
+dt_list$test  <- dt_test_enriched
+
+# Re-run binning including newly created combined variables
+bins = woebin(dt_train_enriched, y=c(target), check_cate_num= FALSE, ignore_const_cols = FALSE, ignore_datetime_cols = TRUE, method = 'tree', stop_limit = stop_limit, count_distr_limit = count_distr_limit, no_cores = NULL, bin_num_limit = bin_num_limit)
+dt_woe_list = lapply(dt_list, function(x) woebin_ply(x, bins))
+
+
 dt_woe_list$train = var_filter(dt_woe_list$train, y=c(target) ,lims = list(missing_rate = missing_rate, identical_rate = identical_rate, info_value = info_value_cutoff))
 
 drop_info_var_filter <- setdiff(colnames(dt_train_enriched), sub("_woe$", "", colnames(dt_woe_list$train)))
@@ -328,6 +351,8 @@ final_bins <- bins[names(bins) %in% final_model_features]
 
 dt_initial_enriched <- fe$predict_new(dt_initial)
 dt_initial_enriched <- dt_initial %>% left_join(dt_initial_enriched,  by = id)
+# Apply combined categorical features to initial set using final bins
+dt_initial_enriched <- add_woe_cross_features(dt_initial_enriched, bins, woe_combo_blueprint)
 dt_final <- split_df(dt_initial_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date, id))), y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
 dt_final$oot <- dt_oot_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date, id)))
 

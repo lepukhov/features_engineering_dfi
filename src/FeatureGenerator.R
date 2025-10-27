@@ -821,3 +821,160 @@ engineer_features_train <- function(
     predict_new = predict_new
   )
 }
+
+
+
+make_woe_combo_features_blueprint <- function(train_woe_df,
+                                              target_col,
+                                              max_base = get0("top_num_for_pairs", ifnotfound = 20),
+                                              max_combos = get0("max_num_woe_combos", ifnotfound = 200)) {
+  stopifnot(target_col %in% names(train_woe_df))
+  y <- train_woe_df[[target_col]]
+  
+  woe_cols <- names(train_woe_df)
+  woe_cols <- woe_cols[grepl("_woe$", woe_cols)]
+  # Guard against data.table column subsetting semantics
+  twdf <- as.data.frame(train_woe_df)
+  is_num <- vapply(twdf[woe_cols], is.numeric, logical(1))
+  woe_cols <- woe_cols[is_num]
+  if (length(woe_cols) < 2) {
+    return(list(woe_vars_required = woe_cols, combos = data.frame()))
+  }
+  
+  base_scores <- vapply(woe_cols, function(col) {
+    suppressWarnings(abs(stats::cor(train_woe_df[[col]], y, use = "pairwise.complete.obs", method = "spearman")))
+  }, numeric(1))
+  base_scores[!is.finite(base_scores)] <- 0
+  top_vars <- names(sort(base_scores, decreasing = TRUE))[seq_len(min(length(base_scores), max_base))]
+  if (length(top_vars) < 2) {
+    return(list(woe_vars_required = top_vars, combos = data.frame()))
+  }
+  
+  pairs <- utils::combn(top_vars, 2, simplify = FALSE)
+  eval_auc <- function(v1, v2) {
+    x1 <- train_woe_df[[v1]]; x2 <- train_woe_df[[v2]]
+    x1[is.na(x1)] <- 0; x2[is.na(x2)] <- 0
+    z <- x1 * x2
+    if (all(is.na(z)) || length(unique(z[is.finite(z)])) < 2) return(NA_real_)
+    yy <- train_woe_df[[target_col]]
+    yy <- if (all(yy %in% c(0, 1))) yy else as.numeric(factor(yy)) - 1
+    suppressWarnings(ModelMetrics::auc(actual = yy, predicted = z))
+  }
+  aucs <- vapply(pairs, function(p) eval_auc(p[1], p[2]), numeric(1))
+  aucs[!is.finite(aucs)] <- 0
+  
+  ord <- order(aucs, decreasing = TRUE)
+  pick <- head(ord, n = min(length(ord), max_combos))
+  pairs <- pairs[pick]
+  aucs <- aucs[pick]
+  
+  combos_df <- data.frame(
+    var1 = vapply(pairs, `[`, character(1), 1L),
+    var2 = vapply(pairs, `[`, character(1), 2L),
+    op = "prod",
+    new_name = paste0(vapply(pairs, `[`, character(1), 1L), "__X__", vapply(pairs, `[`, character(1), 2L)),
+    auc = as.numeric(aucs),
+    stringsAsFactors = FALSE
+  )
+  
+  list(
+    woe_vars_required = unique(c(combos_df$var1, combos_df$var2)),
+    combos = combos_df
+  )
+}
+
+# Apply blueprint to any WOE-framed dataset
+apply_woe_combo_features <- function(df, blueprint) {
+  if (is.null(blueprint) || is.null(blueprint$combos) || NROW(blueprint$combos) == 0) return(df)
+  cb <- blueprint$combos
+  for (i in seq_len(NROW(cb))) {
+    v1 <- cb$var1[i]; v2 <- cb$var2[i]; nm <- cb$new_name[i]
+    if (!(v1 %in% names(df)) || !(v2 %in% names(df))) next
+    x1 <- df[[v1]]; x2 <- df[[v2]]
+    x1[is.na(x1)] <- 0; x2[is.na(x2)] <- 0
+    df[[nm]] <- as.numeric(x1) * as.numeric(x2)
+  }
+  df
+}
+
+# ============================================================
+# Cross-bin categorical features from WOE bins
+#
+# 1) Blueprint builder: selects top pairs using existing WOE AUC heuristic
+#    and produces raw-variable pair names and a stable combined feature name.
+# 2) Feature applier: on raw data + bins, derives per-variable WOE values,
+#    maps them back to human bin labels, and creates a categorical cross.
+#    The resulting column can then be re-binned by scorecard::woebin.
+# ============================================================
+
+build_woe_cross_features_blueprint <- function(train_woe_df,
+                                               target_col,
+                                               max_base = get0("top_num_for_pairs", ifnotfound = 20),
+                                               max_combos = get0("max_num_woe_combos", ifnotfound = 200)) {
+  bp <- make_woe_combo_features_blueprint(
+    train_woe_df = train_woe_df,
+    target_col   = target_col,
+    max_base     = max_base,
+    max_combos   = max_combos
+  )
+  if (is.null(bp$combos) || NROW(bp$combos) == 0) {
+    return(list(woe_vars_required = character(0), combos = data.frame()))
+  }
+  combos <- bp$combos
+  # Convert WOE column names (var_woe) to raw variable names
+  combos$var1_raw <- sub("_woe$", "", combos$var1)
+  combos$var2_raw <- sub("_woe$", "", combos$var2)
+  combos$new_name <- paste0(combos$var1_raw, "__VS__", combos$var2_raw)
+  list(
+    woe_vars_required = unique(c(combos$var1, combos$var2)),
+    combos = combos[, c("var1_raw", "var2_raw", "new_name"), drop = FALSE]
+  )
+}
+
+.round_key <- function(x) {
+  # Stable string key for doubles
+  key <- sprintf("%.6f", as.numeric(x))
+  key[!is.finite(as.numeric(x)) | is.na(x)] <- "__NA__"
+  key
+}
+
+add_woe_cross_features <- function(df, bins, blueprint) {
+  if (is.null(blueprint) || is.null(blueprint$combos) || NROW(blueprint$combos) == 0) return(df)
+  df_local <- as.data.frame(df)
+  cb <- blueprint$combos
+  raw_vars <- unique(c(cb$var1_raw, cb$var2_raw))
+  raw_vars <- intersect(raw_vars, names(df_local))
+  if (!length(raw_vars)) return(df)
+
+  # Prepare WOE columns for involved variables only
+  ply_input <- df_local[, raw_vars, drop = FALSE]
+  wdf <- tryCatch(scorecard::woebin_ply(ply_input, bins = bins), error = function(e) NULL)
+  if (is.null(wdf)) return(df)
+
+  # Build mapping from WOE value -> bin label for each involved variable
+  woe_to_label <- list()
+  for (v in raw_vars) {
+    if (!v %in% names(bins)) next
+    bb <- bins[[v]]
+    # Expect columns 'woe' and 'bin'
+    if (!all(c("woe", "bin") %in% names(bb))) next
+    key <- .round_key(bb$woe)
+    # Ensure unique mapping (if duplicated keys, keep the first)
+    map <- stats::setNames(as.character(bb$bin), key)
+    woe_to_label[[v]] <- map
+  }
+
+  # Create each combined categorical cross
+  for (i in seq_len(NROW(cb))) {
+    v1 <- cb$var1_raw[i]; v2 <- cb$var2_raw[i]; nm <- cb$new_name[i]
+    v1w <- paste0(v1, "_woe"); v2w <- paste0(v2, "_woe")
+    if (!(v1w %in% names(wdf)) || !(v2w %in% names(wdf))) next
+    k1 <- .round_key(wdf[[v1w]])
+    k2 <- .round_key(wdf[[v2w]])
+    lab1 <- if (!is.null(woe_to_label[[v1]])) woe_to_label[[v1]][k1] else as.character(k1)
+    lab2 <- if (!is.null(woe_to_label[[v2]])) woe_to_label[[v2]][k2] else as.character(k2)
+    lab1[is.na(lab1)] <- "MISSING"; lab2[is.na(lab2)] <- "MISSING"
+    df_local[[nm]] <- factor(paste0(lab1, "__X__", lab2), exclude = NULL)
+  }
+  df_local
+}
