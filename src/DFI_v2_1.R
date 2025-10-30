@@ -150,37 +150,44 @@ dt_list = split_df(dt_initial, y=target, ratios = c(ratio_train, 1 - ratio_train
 #  dplyr::left_join(base_df, dict, join_by(!!as.name(key_col)))
 #}
 
-fe <- engineer_features_train(dt_list$train,
-                              target = target,
-                              top_num_for_pairs = top_num_for_pairs,
-                              id_col = id,
-                              poly_degree = 2,
-                              use_catboost = use_catboost,
-                              use_ranger = use_ranger,
-                              use_rpart = use_rpart,
-                              use_xgboost = use_xgboost,
-                              xgb_add_leaf_features = xgb_add_leaf_features,
-                              xgb_leaf_encoding = "onehot",
-                              xgb_leaf_use_first_n_trees = xgb_leaf_use_first_n_trees,
-                              n_folds = n_folds,
-                              cat_loss_function = cat_loss_function,
-                              cat_depth = cat_depth,
-                              cat_iterations_oof = cat_iterations_oof,
-                              cat_iterations_full = cat_iterations_full,
-                              cat_learning_rate_oof = cat_learning_rate_oof,
-                              cat_learning_rate_full = cat_learning_rate_full)
+if (isTRUE(use_engineer_features)) {
+  fe <- engineer_features_train(dt_list$train,
+                                target = target,
+                                top_num_for_pairs = top_num_for_pairs,
+                                id_col = id,
+                                poly_degree = 2,
+                                use_catboost = use_catboost,
+                                use_ranger = use_ranger,
+                                use_rpart = use_rpart,
+                                use_xgboost = use_xgboost,
+                                xgb_add_leaf_features = xgb_add_leaf_features,
+                                xgb_leaf_encoding = "onehot",
+                                xgb_leaf_use_first_n_trees = xgb_leaf_use_first_n_trees,
+                                n_folds = n_folds,
+                                cat_loss_function = cat_loss_function,
+                                cat_depth = cat_depth,
+                                cat_iterations_oof = cat_iterations_oof,
+                                cat_iterations_full = cat_iterations_full,
+                                cat_learning_rate_oof = cat_learning_rate_oof,
+                                cat_learning_rate_full = cat_learning_rate_full)
 
-dt_train_enriched <- fe$train_features
-dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))
-dt_train_enriched <- dt_list$train %>% dplyr::left_join(dt_train_enriched,  by = id)
+  dt_train_enriched <- fe$train_features
+  dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))
+  dt_train_enriched <- dt_list$train %>% dplyr::left_join(dt_train_enriched,  by = id)
 
-#dt_test_enriched <- dt_list$test
-dt_test_enriched <- fe$predict_new(dt_list$test)
-dt_test_enriched <- dt_list$test %>% left_join(dt_test_enriched,  by = id)
+  #dt_test_enriched <- dt_list$test
+  dt_test_enriched <- fe$predict_new(dt_list$test)
+  dt_test_enriched <- dt_list$test %>% left_join(dt_test_enriched,  by = id)
 
-#dt_oot_enriched <- dt_oot
-dt_oot_enriched <- fe$predict_new(dt_oot)
-dt_oot_enriched <- dt_oot %>% left_join(dt_oot_enriched,  by = id)
+  #dt_oot_enriched <- dt_oot
+  dt_oot_enriched <- fe$predict_new(dt_oot)
+  dt_oot_enriched <- dt_oot %>% left_join(dt_oot_enriched,  by = id)
+} else {
+  fe <- list(models = NULL, meta = list())
+  dt_train_enriched <- dt_list$train
+  dt_test_enriched <- dt_list$test
+  dt_oot_enriched <- dt_oot
+}
 
 if (VERBOSE) glimpse(dt_oot_enriched)
 
@@ -197,28 +204,33 @@ drop_info_df <- data.frame(
 bins = woebin(dt_train_enriched, y=c(target), check_cate_num= FALSE, ignore_const_cols = FALSE, ignore_datetime_cols = TRUE, method = 'tree', stop_limit = stop_limit, count_distr_limit = count_distr_limit, no_cores = NULL, bin_num_limit = bin_num_limit)
 dt_woe_list = lapply(dt_list, function(x) woebin_ply(x, bins))
 
-# Build blueprint for cross-bin categorical features from WOE-binned train
-woe_combo_blueprint <- try(build_woe_cross_features_blueprint(
-  train_woe_df = dt_woe_list$train,
-  target_col   = target,
-  max_base     = get0('top_num_for_combos', ifnotfound = 20),
-  max_combos   = get0('max_num_woe_combos', ifnotfound = 200),
-  exclude_vars = get0('woe_combo_exclude_vars', ifnotfound = character(0))
-), silent = TRUE)
-if (inherits(woe_combo_blueprint, 'try-error')) woe_combo_blueprint <- list(combos = data.frame())
+if (isTRUE(use_woe_combos)) {
+  # Build blueprint for cross-bin categorical features from WOE-binned train
+  woe_combo_blueprint <- try(build_woe_cross_features_blueprint(
+    train_woe_df = dt_woe_list$train,
+    target_col   = target,
+    max_base     = get0('top_num_for_combos', ifnotfound = 20),
+    max_combos   = get0('max_num_woe_combos', ifnotfound = 200),
+    exclude_vars = get0('woe_combo_exclude_vars', ifnotfound = character(0))
+  ), silent = TRUE)
+  if (inherits(woe_combo_blueprint, 'try-error')) woe_combo_blueprint <- list(combos = data.frame())
 
-# Add combined categorical features to raw enriched datasets
-dt_train_enriched <- add_woe_cross_features(dt_train_enriched, bins, woe_combo_blueprint)
-dt_test_enriched  <- add_woe_cross_features(dt_test_enriched,  bins, woe_combo_blueprint)
-dt_oot_enriched   <- add_woe_cross_features(dt_oot_enriched,   bins, woe_combo_blueprint)
+  # Add combined categorical features to raw enriched datasets
+  dt_train_enriched <- add_woe_cross_features(dt_train_enriched, bins, woe_combo_blueprint)
+  dt_test_enriched  <- add_woe_cross_features(dt_test_enriched,  bins, woe_combo_blueprint)
+  dt_oot_enriched   <- add_woe_cross_features(dt_oot_enriched,   bins, woe_combo_blueprint)
 
-# Update lists after adding combined features
-dt_list$train <- dt_train_enriched
-dt_list$test  <- dt_test_enriched
+  # Update lists after adding combined features
+  dt_list$train <- dt_train_enriched
+  dt_list$test  <- dt_test_enriched
+} else {
+  woe_combo_blueprint <- list(combos = data.frame())
+}
 
 # Re-run binning including newly created combined variables
-bins = woebin(dt_train_enriched, y=c(target), check_cate_num= FALSE, ignore_const_cols = FALSE, ignore_datetime_cols = TRUE, method = 'tree', stop_limit = stop_limit, count_distr_limit = count_distr_limit, no_cores = NULL, bin_num_limit = bin_num_limit)
-dt_woe_list = lapply(dt_list, function(x) woebin_ply(x, bins))
+bins = woebin(dt_train_enriched, y=c(target), check_cate_num= TRUE, ignore_const_cols = FALSE, ignore_datetime_cols = TRUE, method = 'tree', stop_limit = stop_limit, count_distr_limit = count_distr_limit, no_cores = NULL, bin_num_limit = bin_num_limit)
+dt_woe_list$train <- woebin_ply(dt_train_enriched, bins)
+dt_woe_list$test <- woebin_ply(dt_test_enriched, bins)
 
 
 dt_woe_list$train = var_filter(dt_woe_list$train, y=c(target) ,lims = list(missing_rate = missing_rate, identical_rate = identical_rate, info_value = info_value_cutoff))
@@ -356,10 +368,16 @@ final_model <- m3_1
 final_model_features <-  sub("_woe$", "", names(m3_1$model))
 final_bins <- bins[names(bins) %in% final_model_features]
 
-dt_initial_enriched <- fe$predict_new(dt_initial)
-dt_initial_enriched <- dt_initial %>% left_join(dt_initial_enriched,  by = id)
+if (isTRUE(use_engineer_features)) {
+  dt_initial_enriched <- fe$predict_new(dt_initial)
+  dt_initial_enriched <- dt_initial %>% left_join(dt_initial_enriched,  by = id)
+} else {
+  dt_initial_enriched <- dt_initial
+}
 # Apply combined categorical features to initial set using final bins
-dt_initial_enriched <- add_woe_cross_features(dt_initial_enriched, bins, woe_combo_blueprint)
+if (isTRUE(use_woe_combos)) {
+  dt_initial_enriched <- add_woe_cross_features(dt_initial_enriched, bins, woe_combo_blueprint)
+}
 dt_final <- split_df(dt_initial_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date, id))), y=target, ratios = c(ratio_train, 1 - ratio_train), seed = 14)
 dt_final$oot <- dt_oot_enriched %>% dplyr::select(any_of(c(final_model_features, target, loan_date, id)))
 

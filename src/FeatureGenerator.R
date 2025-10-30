@@ -959,6 +959,8 @@ add_woe_cross_features <- function(df, bins, blueprint) {
 
   # Build mapping from WOE value -> bin label for each involved variable
   woe_to_label <- list()
+  # Build compact label -> short code mapping per variable (stable by bins order)
+  label_to_code <- list()
   for (v in raw_vars) {
     if (!v %in% names(bins)) next
     bb <- bins[[v]]
@@ -968,6 +970,10 @@ add_woe_cross_features <- function(df, bins, blueprint) {
     # Ensure unique mapping (if duplicated keys, keep the first)
     map <- stats::setNames(as.character(bb$bin), key)
     woe_to_label[[v]] <- map
+    lbls <- as.character(bb$bin)
+    lbls <- unique(lbls)
+    codes <- sprintf("L%02d", seq_along(lbls))
+    label_to_code[[v]] <- stats::setNames(codes, lbls)
   }
 
   # Create each combined categorical cross
@@ -980,7 +986,12 @@ add_woe_cross_features <- function(df, bins, blueprint) {
     lab1 <- if (!is.null(woe_to_label[[v1]])) woe_to_label[[v1]][k1] else as.character(k1)
     lab2 <- if (!is.null(woe_to_label[[v2]])) woe_to_label[[v2]][k2] else as.character(k2)
     lab1[is.na(lab1)] <- "MISSING"; lab2[is.na(lab2)] <- "MISSING"
-    df_local[[nm]] <- factor(paste0(lab1, "__X__", lab2), exclude = NULL)
+    # Map verbose labels to compact codes using bins-driven stable mapping
+    code1 <- if (!is.null(label_to_code[[v1]])) label_to_code[[v1]][lab1] else lab1
+    code2 <- if (!is.null(label_to_code[[v2]])) label_to_code[[v2]][lab2] else lab2
+    # Fallback for unseen labels
+    code1[is.na(code1)] <- "L00"; code2[is.na(code2)] <- "L00"
+    df_local[[nm]] <- factor(paste0(code1, "__X__", code2), exclude = NULL)
   }
   df_local
 }

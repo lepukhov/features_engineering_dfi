@@ -36,6 +36,10 @@ xgb_leaf_use_first_n_trees = 20 # количество первых деревь
 n_folds = 5 #количество фолдов
 fe_nfolds = 5
 
+# Тогглы для пайплайна признаков/комбинаций WOE
+use_engineer_features = FALSE   # использовать engineer_features_train (если FALSE, работаем только с базовыми полями)
+use_woe_combos = TRUE          # добавлять комбинированные WOE-признаки (если FALSE, пропускаем build/add_woe_cross_features)
+
 #комбинирование переменных
 top_num_for_combos = 20
 max_num_woe_combos = 200
@@ -57,7 +61,7 @@ stop_limit = 0.1
 
 
 #Filtering Settings
-info_value_cutoff = 0.05 #Фильтр по IV
+info_value_cutoff = 0.02 #Фильтр по IV
 missing_rate = 0.5 #фильтр по доле пропусков
 identical_rate = 0.9 #фильтр по идентичности
 cv_nfolds = 5 #количество фолдов, которое используется при L1 регуляризации
