@@ -267,8 +267,14 @@ drop_info_df <- rbind(drop_info_df, data.frame(Var = drop_info_VIF, Reason = 'VI
 }
 
 
-x <- model.matrix(as.formula(paste(target, '~ .')), data = dt_woe_list$train)[, -1]
-y <- dt_woe_list$train[[target]]
+# Build model matrix with na.pass, then drop rows with any NA to match glmnet requirements
+mm_terms <- stats::terms(as.formula(paste(target, " ~ .")), data = dt_woe_list$train)
+mf <- stats::model.frame(mm_terms, data = dt_woe_list$train, na.action = stats::na.pass)
+y <- stats::model.response(mf)
+X <- stats::model.matrix(mm_terms, mf)[, -1, drop = FALSE]
+keep <- stats::complete.cases(X) & !is.na(y)
+x <- X[keep, , drop = FALSE]
+y <- y[keep]
 
 alphas <- seq(0, 1, by = 0.01)
 cv_errors <- numeric(length(alphas))
