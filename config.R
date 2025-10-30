@@ -53,6 +53,29 @@ cat_iterations_full = 700L
 cat_learning_rate_oof = 0.08
 cat_learning_rate_full = 0.06
 
+#гиперпараметры xgboost
+# XGBoost hyperparams (OOF)
+xgb_objective = "binary:logistic"
+xgb_eval_metric = "logloss"
+xgb_max_depth = 4L
+xgb_eta_oof = 0.10
+xgb_subsample_oof = 0.80
+xgb_colsample_bytree_oof = 0.80
+xgb_min_child_weight = 8
+xgb_gamma = 0
+xgb_lambda = 1
+xgb_alpha = 0
+xgb_max_bin = 256L
+xgb_nrounds_oof = 220L
+xgb_params_extra = NULL
+
+# XGBoost hyperparams (FULL)
+xgb_eta_full = 0.08
+xgb_subsample_full = 0.85
+xgb_colsample_bytree_full = 0.85
+xgb_nrounds_full = 320L
+xgb_params_full_extra = NULL
+
 
 #Binning Settings
 bin_num_limit = 6 #максимальное количество биннингов для каждой из переменных

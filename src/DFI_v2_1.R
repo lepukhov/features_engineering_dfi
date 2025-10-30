@@ -169,7 +169,25 @@ if (isTRUE(use_engineer_features)) {
                                 cat_iterations_oof = cat_iterations_oof,
                                 cat_iterations_full = cat_iterations_full,
                                 cat_learning_rate_oof = cat_learning_rate_oof,
-                                cat_learning_rate_full = cat_learning_rate_full)
+                                cat_learning_rate_full = cat_learning_rate_full,
+                                xgb_objective = xgb_objective,
+                                xgb_eval_metric = xgb_eval_metric,
+                                xgb_max_depth = xgb_max_depth,
+                                xgb_eta_oof = xgb_eta_oof,
+                                xgb_subsample_oof = xgb_subsample_oof,
+                                xgb_colsample_bytree_oof = xgb_colsample_bytree_oof,
+                                xgb_min_child_weight = xgb_min_child_weight,
+                                xgb_gamma = xgb_gamma,
+                                xgb_lambda = xgb_lambda,
+                                xgb_alpha = xgb_alpha,
+                                xgb_max_bin = xgb_max_bin,
+                                xgb_nrounds_oof = xgb_nrounds_oof,
+                                xgb_params_extra = xgb_params_extra,
+                                xgb_eta_full = xgb_eta_full,
+                                xgb_subsample_full = xgb_subsample_full,
+                                xgb_colsample_bytree_full = xgb_colsample_bytree_full,
+                                xgb_nrounds_full = xgb_nrounds_full,
+                                xgb_params_full_extra = xgb_params_full_extra)
 
   dt_train_enriched <- fe$train_features
   dt_train_enriched <- dt_train_enriched %>% dplyr::select(!any_of(c(target)))
